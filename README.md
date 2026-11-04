@@ -245,17 +245,18 @@ Settings you can change with environment variables:
 Optional and off by default. It lets you open the dashboard from your phone or laptop over your own Tailscale network (tailnet). The server still listens on `127.0.0.1` only; `tailscale serve` on the PC forwards tailnet traffic to it.
 
 1. In Settings, open "Remote access (Tailscale)", tick "Allow access over Tailscale", check the host name (filled in from Tailscale, it ends in `.ts.net`) and press Save.
-2. Press "Generate access token" and copy it. It is shown once. Only a salted hash is stored.
+2. Under "Sign-in", set a username and a password or PIN (6 or more characters) and press "Save sign-in". Only a salted scrypt hash is stored.
 3. On the PC, run the command shown in that card: `tailscale serve --bg 4777` (with your port). Model Engine never runs it for you.
-4. On the phone or laptop, open `https://<name>.ts.net` and paste the token. The session lasts 7 days.
+4. On the phone or laptop, open `https://<name>.ts.net`, sign in, and keep "Remember this device" ticked. Remembered devices stay signed in for 30 days (extended when used, at most once an hour) and survive restarts. Unticked, the sign-in lasts 12 hours. Only a hash of each session is stored, never the session itself.
+5. Backup: "Generate access token" makes an access token you can use instead (use "Use access token instead" on the sign-in page). Only a salted hash is stored.
 
-Anyone with the token and access to your tailnet can run agents on this PC, so treat the token like a password. Failed sign-ins are limited to 5 per minute.
+Anyone with your sign-in or token and access to your tailnet can run agents on this PC, so treat them like a password. Brute-force protection: 5 failed sign-ins a minute per device locks that device out for 1 minute, then 2, 4 and so on up to 15 minutes, and there is a global cap on top.
 
 Blocked when connecting remotely, so they work from the PC only: the Windows folder picker, installing or rolling back updates, changing update settings, and all of the remote access settings. Chat, plans, project views, the live stream, folder browsing and diffs work.
 
 **Never use `tailscale funnel`.** It puts the dashboard on the public internet. Use `tailscale serve` only.
 
-To revoke: press "Sign out all remote sessions" in Settings (on the PC), generate a new token (this also signs everyone out), or untick the box. To remove the published address, run `tailscale serve reset` on the PC.
+To sign devices out: in Settings (on the PC) press "Sign out" next to one device or "Sign out all devices". Changing the username or password, removing it, or generating a new token also signs everyone out, and so does unticking the box. To remove the published address, run `tailscale serve reset` on the PC.
 
 Privacy: no data leaves your tailnet because of this feature. Model Engine reads only your Tailscale name and whether it is running from `tailscale status --json`; it keeps no IP addresses, peers or emails.
 

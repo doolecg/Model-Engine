@@ -30,8 +30,10 @@ const clients = new Set();
 // Claude sign-in mode: 'subscription' (your Claude login) or 'apikey'. Read at the start of each run, so a change applies to the next run.
 let claudeAuth = 'subscription';
 // Remote access (Tailscale): settings, in-memory sessions, login rate limit, open remote streams.
-const RM = remote.restore(null), sessions = remote.createSessions(), limiter = remote.createLimiter(), globalLimiter = remote.createLimiter({ max: 30 }), remoteStreams = new Set();
-function dropRemoteSessions() { sessions.clear(); for (const r of remoteStreams) { try { r.end(); } catch {} } remoteStreams.clear(); }
+const RM = { ...remote.restore(null), creds: null }, sessions = remote.createSessions({ onChange: () => save() }), limiter = remote.createLimiter({ escalate: true }), globalLimiter = remote.createLimiter({ max: 30 }), remoteStreams = new Map();
+function dropRemoteSessions() { sessions.clear(); for (const r of remoteStreams.keys()) { try { r.end(); } catch {} } remoteStreams.clear(); }
+function pruneRemoteStreams() { for (const [r, h] of remoteStreams) if (!sessions.hasHash(h)) { try { r.end(); } catch {} remoteStreams.delete(r); } }
+const sessionCookie = (id, remember) => `me_auth=${id}; HttpOnly; Secure; SameSite=Strict; Path=/${remember ? `; Max-Age=${remote.REMEMBER_MS / 1000}` : ''}`;
 
 function send(type, data) {
   const m = `data: ${JSON.stringify({ type, ...data })}\n\n`;
@@ -230,7 +232,7 @@ function save() {
   saveTimer = setTimeout(() => {
     try {
       const out = [...projects.values()].map((p) => ({ ...pmeta(p), log: p.log, changes: p.changes.map((c, i, a) => (i < a.length - 10 ? c.slice(0, 3) : c)), threads: [p.planThread, p.engineThread].map((id) => { const t = threads.get(id); return { ...tmeta(t), running: false, sessionId: t.sessionId, sessions: t.sessions || {}, items: t.items.filter((i) => i.kind !== 'perm' || i.status !== 'pending').slice(-200) }; }) }));
-      fs.writeFileSync(STORE, JSON.stringify({ projects: out, usage: usageRows, updates: UPD.settings, claudeAuth, remote: { enabled: RM.enabled, host: RM.host, salt: RM.salt, hash: RM.hash } }));
+      fs.writeFileSync(STORE, JSON.stringify({ projects: out, usage: usageRows, updates: UPD.settings, claudeAuth, remote: { enabled: RM.enabled, host: RM.host, salt: RM.salt, hash: RM.hash, creds: RM.creds, sessions: sessions.dump() } }));
     } catch {}
   }, 400);
 }
@@ -254,7 +256,7 @@ function load() {
     const data = JSON.parse(fs.readFileSync(STORE, 'utf8'));
     if (!Array.isArray(data) && Array.isArray(data.usage)) usageRows = data.usage.slice(-USAGE_CAP);
     if (!Array.isArray(data)) Object.assign(UPD.settings, updSettings(data.updates) || {});
-    if (!Array.isArray(data)) Object.assign(RM, remote.restore(data.remote));
+    if (!Array.isArray(data)) { Object.assign(RM, remote.restore(data.remote)); RM.creds = remote.restoreCreds(data.remote && data.remote.creds); sessions.load(data.remote && data.remote.sessions); }
     if (!Array.isArray(data) && AUTH_MODES.includes(data.claudeAuth)) claudeAuth = data.claudeAuth;
     for (const p of Array.isArray(data) ? data : data.projects || []) {
       if (!fs.existsSync(p.folder)) continue;
@@ -549,7 +551,7 @@ async function updAuto() {
 
 async function remoteStatus() {
   const ts = await remote.detectTailscale({ execFile, exists: (c) => fs.existsSync(c) });
-  return { enabled: RM.enabled, host: RM.host, tokenSet: !!RM.hash, tailscale: { installed: ts.installed, running: ts.running, dnsName: ts.dnsName }, publishCommand: remote.publishCommand(PORT), sessions: sessions.count() };
+  return { enabled: RM.enabled, host: RM.host, tokenSet: !!RM.hash, tailscale: { installed: ts.installed, running: ts.running, dnsName: ts.dnsName }, publishCommand: remote.publishCommand(PORT), credentials: { username: RM.creds ? RM.creds.username : null, set: !!RM.creds }, sessions: sessions.list() };
 }
 
 const server = http.createServer((req, res) => {
@@ -563,7 +565,8 @@ const server = http.createServer((req, res) => {
   } else { res.writeHead(403); return res.end(); }
   const url = new URL(req.url, 'http://x'), u = url.pathname, q = url.searchParams;
   if (isRemote) {
-    const authed = sessions.valid(remote.parseCookie(req.headers.cookie, 'me_auth'));
+    const cookieId = remote.parseCookie(req.headers.cookie, 'me_auth'), chk = sessions.check(cookieId), authed = !!chk;
+    if (chk && chk.slid) res.setHeader('set-cookie', sessionCookie(cookieId, chk.remember));
     if (u === '/auth/ping' && req.method === 'GET') return json(res, { ok: true, authed });
     if (u === '/auth/login' && req.method === 'POST') {
       const tsUser = req.headers['tailscale-user-login'];
@@ -571,9 +574,12 @@ const server = http.createServer((req, res) => {
       return body(req, (b) => {
         const wait = Math.max(limiter.retry(key), globalLimiter.retry('*'));
         if (wait) { res.setHeader('retry-after', wait); return json(res, { error: 'too many attempts' }, 429); }
-        if (!b || !remote.verifyToken(b.token, RM)) { limiter.fail(key); globalLimiter.fail('*'); return json(res, { error: 'bad token' }, 401); }
+        const byToken = !!b && typeof b.token === 'string';
+        const good = byToken ? remote.verifyToken(b.token, RM) : !!b && remote.verifyCredentials(b.username, b.secret, RM.creds);
+        if (!good) { limiter.fail(key); globalLimiter.fail('*'); return json(res, { error: byToken ? 'bad token' : 'Wrong username or password' }, 401); }
         limiter.reset(key);
-        res.setHeader('set-cookie', `me_auth=${sessions.create()}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${remote.SESSION_MS / 1000}`);
+        const remember = b.remember === true;
+        res.setHeader('set-cookie', sessionCookie(sessions.create({ remember, label: remote.deviceLabel(req.headers['user-agent']) }), remember));
         json(res, { ok: true });
       }, 4096);
     }
@@ -586,6 +592,10 @@ const server = http.createServer((req, res) => {
     }
     if (u.startsWith('/remote/') || (req.method === 'POST' && ['/fs/pick', '/update/apply', '/update/rollback', '/update/settings', '/claude/auth'].includes(u))) return json(res, { error: 'only from the PC itself' }, 403);
   } else if (u.startsWith('/auth/')) { res.writeHead(404); return res.end(); }
+  if (u === '/remote/credentials' && req.method === 'DELETE') return body(req, () => {
+    RM.creds = null; dropRemoteSessions(); save();
+    remoteStatus().then((st) => json(res, st)).catch(() => json(res, { error: 'status failed' }, 500));
+  });
   if (req.method === 'GET' && u === '/remote/status') {
     res.setHeader('cache-control', 'no-store');
     return remoteStatus().then((st) => json(res, st)).catch(() => json(res, { error: 'status failed' }, 500));
@@ -635,7 +645,7 @@ const server = http.createServer((req, res) => {
     for (const t of threads.values()) w({ type: 'items', thread: t.id, items: t.items });
     for (const t of threads.values()) w({ type: 'subs', thread: t.id, list: (t.subs || []).map((s) => ({ ...s, items: s.items.slice(-40) })) });
     if (cmds.length) w({ type: 'commands', list: cmds });
-    clients.add(res); if (isRemote) remoteStreams.add(res);
+    clients.add(res); if (isRemote) remoteStreams.set(res, sessions.hashOf(remote.parseCookie(req.headers.cookie, 'me_auth')));
     req.on('close', () => { clients.delete(res); remoteStreams.delete(res); });
     prefetch();
     return;
@@ -719,7 +729,22 @@ const server = http.createServer((req, res) => {
     RM.salt = h.salt; RM.hash = h.hash; dropRemoteSessions(); save();
     res.setHeader('cache-control', 'no-store'); json(res, { token });
   });
-  if (u === '/remote/revoke') return body(req, () => { dropRemoteSessions(); json(res, { ok: true, sessions: 0 }); });
+  if (u === '/remote/revoke') return body(req, (b) => {
+    if (b && b.index !== undefined) {
+      if (!sessions.revokeAt(b.index)) return json(res, { error: 'No such device' }, 400);
+      pruneRemoteStreams(); return json(res, { ok: true, sessions: sessions.count() });
+    }
+    dropRemoteSessions(); json(res, { ok: true, sessions: 0 });
+  });
+  if (u === '/remote/credentials' && req.method === 'POST') return body(req, (b) => {
+    const username = b && typeof b.username === 'string' ? b.username.trim().toLowerCase() : '';
+    if (!remote.validUsername(username)) return json(res, { error: 'Username must be 3 to 32 characters: a-z, 0-9, dot, underscore, hyphen.' }, 400);
+    if (!b || !remote.validSecret(b.secret)) return json(res, { error: 'Password or PIN must be 6 to 128 characters.' }, 400);
+    const h = remote.hashToken(b.secret);
+    RM.creds = { username, salt: h.salt, hash: h.hash }; dropRemoteSessions(); save();
+    res.setHeader('cache-control', 'no-store');
+    remoteStatus().then((st) => json(res, st)).catch(() => json(res, { error: 'status failed' }, 500));
+  });
   if (u === '/event') return body(req, (e) => {
     try { if (e) apply(e); } catch { return done(res, 400); }
     done(res);

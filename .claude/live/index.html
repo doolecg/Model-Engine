@@ -274,7 +274,15 @@ body.reduce-motion .dot{display:none}
    <p id="rmTs" role="status" aria-live="polite">Loading...</p>
    <label><input type="checkbox" id="rmOn"> Allow access over Tailscale</label>
    <label>Host name <input type="text" id="rmHost" size="34" placeholder="name.tailnet.ts.net" autocomplete="off" spellcheck="false"></label>
-   <div><button id="rmSave">Save</button> <button id="rmGen">Generate access token</button> <button id="rmRev">Sign out all remote sessions</button></div>
+   <div><button id="rmSave">Save</button></div>
+   <div id="rmSi"><p><b>Sign-in</b></p><p id="rmCredSt"></p>
+    <label>Username <input type="text" id="rmUser" size="20" maxlength="32" autocomplete="off" autocapitalize="none" spellcheck="false"></label>
+    <label>Password or PIN <input type="password" id="rmPw" size="20" minlength="6" maxlength="128" autocomplete="new-password"></label>
+    <div><button id="rmCredSave">Save sign-in</button> <button id="rmCredDel">Remove</button></div>
+    <p>Devices that tick "Remember this device" stay signed in for 30 days.</p>
+    <ul id="rmDevs"></ul>
+    <div><button id="rmRev">Sign out all devices</button></div></div>
+   <div><b>Access token (backup)</b> <button id="rmGen">Generate access token</button></div>
    <div id="rmTokBox" hidden><p><b>Shown once. Anyone with this token and access to your tailnet can run agents on this PC.</b></p><input type="text" id="rmTok" readonly size="50" aria-label="Access token" onfocus="this.select()"> <button id="rmTokCopy">Copy</button></div>
    <p>Run this on the PC to publish it: <code id="rmCmd">tailscale serve --bg 4777</code> <button id="rmCmdCopy">Copy</button></p>
    <p>Use tailscale serve (tailnet only). Never use tailscale funnel: it puts this on the public internet.</p>
@@ -557,13 +565,22 @@ function rmRender(j){const t=j.tailscale;
  $('rmTs').textContent=(!t.installed?'Tailscale not found. Install it from tailscale.com and sign in.':t.running?'Tailscale found and running.':'Tailscale found but not running.')+(t.dnsName?' Tailnet name: '+t.dnsName+'.':'');
  $('rmOn').checked=j.enabled;if(j.host||!$('rmHost').value)$('rmHost').value=j.host||t.dnsName||'';
  $('rmCmd').textContent=j.publishCommand;
- rmMsg(j.tokenSet?'A token is set. '+j.sessions+' remote session(s) signed in.':'No token yet. Generate one to sign in remotely.')}
-function rmLoad(){if(!RM_PC){$('rmNote').hidden=false;for(const id of ['rmOn','rmHost','rmSave','rmGen','rmRev'])$(id).disabled=true;$('rmTs').textContent='';return}
+ $('rmCredSt').textContent=j.credentials.set?'Username: '+j.credentials.username+' (password set)':'No username set yet. Add one to sign in without the token.';
+ if(j.credentials.set&&!$('rmUser').value)$('rmUser').value=j.credentials.username;
+ $('rmCredDel').disabled=!j.credentials.set;
+ const ul=$('rmDevs');ul.replaceChildren();
+ j.sessions.forEach((d,i)=>{const li=document.createElement('li'),b=document.createElement('button');li.append(d.label+', last seen '+new Date(d.lastSeen).toLocaleString()+' ');
+  b.textContent='Sign out';b.onclick=()=>rmCall('/remote/revoke',{index:i}).then(()=>{rmLoad();rmMsg('Device signed out.')}).catch(e=>rmMsg('Failed: '+e.message));li.append(b);ul.append(li)});
+ rmMsg((j.credentials.set||j.tokenSet?'':'No sign-in yet. Set a username and password, or generate a token. ')+j.sessions.length+' device(s) signed in.')}
+function rmLoad(){if(!RM_PC){$('rmNote').hidden=false;for(const id of ['rmOn','rmHost','rmSave','rmGen'])$(id).disabled=true;$('rmSi').hidden=true;$('rmTs').textContent='';return}
  fetch('/remote/status',{cache:'no-store'}).then(r=>r.json()).then(rmRender).catch(()=>{$('rmTs').textContent='Could not read /remote/status.'})}
 async function rmCall(url,b){const r=await post(url,b),j=await r.json();if(!r.ok)throw new Error(j.error||'failed');return j}
 $('rmSave').onclick=()=>rmCall('/remote/settings',{enabled:$('rmOn').checked,host:$('rmHost').value.trim()}).then(j=>{rmRender(j);rmMsg('Saved.')}).catch(e=>rmMsg('Failed: '+e.message));
-$('rmGen').onclick=()=>rmCall('/remote/token',{}).then(j=>{$('rmTok').value=j.token;$('rmTokBox').hidden=false;$('rmTok').focus();$('rmTok').select();rmMsg('New token made. All remote sessions were signed out.')}).catch(e=>rmMsg('Failed: '+e.message));
-$('rmRev').onclick=()=>rmCall('/remote/revoke',{}).then(()=>{rmMsg('All remote sessions signed out.')}).catch(e=>rmMsg('Failed: '+e.message));
+$('rmGen').onclick=()=>rmCall('/remote/token',{}).then(j=>{$('rmTok').value=j.token;$('rmTokBox').hidden=false;$('rmTok').focus();$('rmTok').select();rmMsg('New token made. All devices were signed out.')}).catch(e=>rmMsg('Failed: '+e.message));
+$('rmRev').onclick=()=>rmCall('/remote/revoke',{}).then(()=>{rmLoad();rmMsg('All devices signed out.')}).catch(e=>rmMsg('Failed: '+e.message));
+$('rmCredSave').onclick=()=>rmCall('/remote/credentials',{username:$('rmUser').value.trim(),secret:$('rmPw').value}).then(j=>{$('rmPw').value='';rmRender(j);rmMsg('Sign-in saved. All devices were signed out.')}).catch(e=>rmMsg('Failed: '+e.message));
+$('rmCredDel').onclick=async()=>{if(!await updOk('REMOVE SIGN-IN','Removes the username and password. All devices are signed out. The access token still works if you made one.','','remove'))return;
+ fetch('/remote/credentials',{method:'DELETE'}).then(async r=>{const j=await r.json();if(!r.ok)throw new Error(j.error||'failed');$('rmUser').value='';rmRender(j);rmMsg('Sign-in removed.')}).catch(e=>rmMsg('Failed: '+e.message))};
 const rmCopy=(id,m)=>{const v=$(id).value!==undefined&&$(id).tagName==='INPUT'?$(id).value:$(id).textContent;(navigator.clipboard?navigator.clipboard.writeText(v):Promise.reject()).then(()=>rmMsg(m)).catch(()=>{if($(id).select){$(id).select();rmMsg('Press Ctrl+C to copy.')}else rmMsg('Select the text and copy it.')})};
 $('rmTokCopy').onclick=()=>rmCopy('rmTok','Token copied.');
 $('rmCmdCopy').onclick=()=>rmCopy('rmCmd','Command copied.');
