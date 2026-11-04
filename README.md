@@ -110,12 +110,17 @@ The chat sits in a panel on the right. The "bots" button in its header opens a p
 
 ### Add a project
 
-1. Press the **+** button next to the project tabs in the header.
-2. Pick a folder. You can type a path and press Enter, use the quick links, click through the folder list, or type a name and press "create" to make a new folder.
-3. On Windows, outside Docker, there is also a **Browse with Windows...** button. It opens the normal Windows folder dialog.
-4. Press **Use folder**. The project gets its own tab.
+Press the **+** button next to the project tabs in the header. There are three ways to get a folder:
 
-In Docker the folder browser only shows the workspace folder, and the Windows button is hidden. See [Run it in Docker](#run-it-in-docker).
+1. **Server folder browser.** Type a path and press Enter, use the quick links, click through the folder list, or type a name and press "create" to make a new folder. Then press **Use folder**.
+2. **Windows dialog on the PC.** On Windows, outside Docker, the **Browse with Windows...** button opens the normal Windows folder dialog. Then press **Use folder**.
+3. **Upload a folder from this device.** Press **Choose folder from this device** (it also works from your phone over remote access). Chrome and Edge on a computer let you pick a folder directly; other browsers use their own folder or file picker. The dashboard shows a summary (files, size, skipped) first. Press **Confirm** to upload. A progress bar shows the upload and **Cancel upload** removes what was sent. If a file fails, the upload stops and you can delete the partial folder.
+
+The project gets its own tab. In Docker the folder browser only shows the workspace folder, and the Windows button is hidden. See [Run it in Docker](#run-it-in-docker).
+
+**Upload limits.** At most 2000 files, 25 MB per file and 300 MB in total; anything larger is refused with a message. At most 4 uploads run at once on the server, and 1 GB of announced data in flight at once; an upload is also refused if it would leave less than 500 MB of free disk. A file that sends nothing for 2 minutes is cut off and marked failed, so the dashboard can retry or cancel. These folders and files are skipped: `.git`, `node_modules`, `.venv`, `__pycache__`, `dist`, `build`, `.next`, `target`, `.cache`, `*.log`, `.DS_Store` and `Thumbs.db`. Git data (`.git` folders or files, `.gitmodules`) is never uploaded. Project config that can run commands (`.claude/`, `.mcp.json`, `.cursor/`, `.vscode/tasks.json`, `.husky/`) is skipped unless you tick **Include Claude/editor config** on the summary screen; the server refuses it otherwise. Names with `~1`-style short aliases, `:` or Windows reserved names are refused. The project name is the folder name, cleaned to letters, digits, space, dot, underscore and hyphen (a repeat gets `-2`, `-3`).
+
+**Where uploads live.** Only in the `workspace` folder next to the program (`/workspace` in Docker), one new folder per upload. Set `MODEL_ENGINE_UPLOAD_ROOT` to use another folder. Updates never touch it. Uploaded files are only written to disk, never run by the upload itself, and links are not followed or created. Agents you start in the folder can run commands there, as in any project. Leftover temporary files are removed when the upload finishes and at startup. An unfinished upload is deleted after 30 minutes idle and when the server starts.
 
 ### Plan, then build
 
@@ -129,6 +134,10 @@ In Docker the folder browser only shows the workspace folder, and the Windows bu
 - **Session log.** The first tab of the log panel lists what each agent did, with the time.
 - **Changes.** The second tab shows each file edit as it happens. Click a change to open its diff. In the diff, lines that start with `+` were added and lines that start with `-` were removed. Press Esc or "Close" to leave it.
 - **One log for each project.** Each project tab keeps its own session log and changes.
+
+### Attaching files
+
+Press **+** in the message box to attach files from your device (images, PDFs, text and code; up to 8 MB each). On a phone it opens the system picker. You can also paste an image or drag files onto the chat on a computer.
 
 ### Steering a run
 
@@ -238,6 +247,7 @@ Read this before the first start.
 Settings you can change with environment variables:
 
 - `MODEL_ENGINE_PORT` changes the port, for the server and the hook.
+- `MODEL_ENGINE_UPLOAD_ROOT` changes where uploaded project folders are written. The default is the `workspace` folder next to the program.
 - `MODEL_ENGINE_STORE` changes where the dashboard keeps its project list. The default is `.claude/live/projects.json`.
 
 ## Remote access over Tailscale

@@ -12,6 +12,7 @@ const { MODES: AUTH_MODES, buildClaudeEnv, claudeAuthStatus } = require('./auth.
 const { aggregateUsage } = require('./usage.js');
 const updater = require('./updater.js');
 const remote = require('./remote.js');
+const { createUploads } = require('./upload.js');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const PORT = Number(process.env.MODEL_ENGINE_PORT) || 4777;
@@ -492,6 +493,10 @@ function fsAllowed(p) {
   return full === WORKSPACE || full.startsWith(WORKSPACE + '/') ? full : null;
 }
 
+// Uploaded folders are written only under this root: /workspace in Docker, <install folder>/workspace otherwise.
+const UPLOAD_ROOT = process.env.MODEL_ENGINE_UPLOAD_ROOT || (IN_DOCKER ? WORKSPACE : path.join(ROOT, 'workspace'));
+const uploads = createUploads({ root: UPLOAD_ROOT });
+
 // ---------------- updates (logic in updater.js; nothing here runs unless the user or the settings ask) ----------------
 const UPD = { settings: { channel: 'stable', check: true, install: false }, cache: {}, working: false };
 const idle = () => !S.busy && !running && ![...threads.values()].some((t) => t.running);
@@ -696,6 +701,22 @@ const server = http.createServer((req, res) => {
       return json(res, { text: buf.subarray(0, 200000).toString('utf8'), truncated: buf.length > 200000 });
     } catch (er) { return json(res, { error: String(er.message) }, 500); }
   }
+  const um = /^\/upload\/([\w-]{8,40})(\/finish)?$/.exec(u);
+  if (u === '/upload/start' || um) {
+    const upKey = isRemote ? sessions.hashOf(remote.parseCookie(req.headers.cookie, 'me_auth')) : 'local';
+    const bad = (er) => json(res, { error: er.status ? er.message : 'upload failed' }, er.status || 500);
+    if (req.method === 'POST' && u === '/upload/start') return body(req, (b) => { try { json(res, uploads.start(upKey, b)); } catch (er) { bad(er); } }, 4194304);
+    if (req.method === 'POST' && um && um[2]) return body(req, () => {
+      try { const r = uploads.finish(um[1], upKey); json(res, { id: newProject(r.dir, r.name).id }); } catch (er) { bad(er); }
+    }, 4096);
+    if (req.method === 'PUT' && um && !um[2]) {
+      const fail = (er) => { res.setHeader('connection', 'close'); bad(er); res.once('finish', () => req.destroy()); };
+      if (!/^application\/octet-stream/i.test(req.headers['content-type'] || '')) return fail({ status: 415, message: 'send application/octet-stream' });
+      const len = req.headers['content-length'] === undefined ? NaN : Number(req.headers['content-length']);
+      return uploads.putFile(um[1], upKey, q.get('path'), req, len).then((r) => json(res, { ok: true, size: r.size })).catch(fail);
+    }
+    if (req.method === 'DELETE' && um && !um[2]) { try { uploads.remove(um[1], upKey); return done(res); } catch (er) { return bad(er); } }
+  }
   if (req.method !== 'POST') { res.writeHead(404); return res.end(); }
   if (u === '/update/check') return body(req, async () => {
     if (UPD.working) return json(res, { error: 'Another update action is running.' }, 409);
@@ -843,6 +864,9 @@ function start(left) {
   server.listen(PORT, HOST, () => {
     server.off('error', onErr);
     load();
+    uploads.cleanStale();
+    setInterval(() => uploads.sweep(), 60e3).unref();
+    setInterval(() => uploads.sweepStalls(), 15e3).unref();
     console.log(`live view on http://${HOST}:${PORT} (pid ${process.pid})`);
     setTimeout(updAuto, 10000).unref();
     setInterval(updAuto, 24 * 3600e3).unref();

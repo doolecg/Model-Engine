@@ -151,6 +151,7 @@ svg text{font-family:"JetBrains Mono","Cascadia Mono",ui-monospace,Consolas,mono
 #pl{flex:1;min-height:12em;overflow:auto;border:1px solid var(--gl);border-radius:8px;padding:4px}
 #pl div{padding:2px 8px;cursor:pointer;border-radius:4px;color:var(--cy)}#pl div:hover{background:#1f1f27}
 #pfoot{display:flex;gap:6px;align-items:center;flex-wrap:wrap}#pn{background:var(--bg);border:1px solid var(--line);border-radius:6px;color:var(--tx);font:inherit;padding:2px 8px;width:11em}
+#upan{border:1px solid var(--line);border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:6px}#upan[hidden]{display:none}#upmsg{white-space:pre-wrap;word-break:break-word}#uprog{width:100%}#upcfgl[hidden]{display:none}#upcfgd ul{margin:4px 0 0;padding-left:18px;max-height:140px;overflow:auto;word-break:break-all}#upsr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}#upbtn{display:flex;gap:6px;flex-wrap:wrap}#upgo{border-color:var(--grn);color:var(--grn)}
 #pe{color:var(--red);flex:1}#pok{border-color:var(--grn);color:var(--grn)}
 .act{stroke-dasharray:6 5;stroke-width:1.6;animation:march .9s linear infinite}
 #subs{width:var(--sw,380px);flex:none;background:var(--card);border:1px solid var(--line);border-radius:10px;display:flex;flex-direction:column;min-height:0;min-width:0}
@@ -288,7 +289,7 @@ body.reduce-motion .dot{display:none}
    <p>Use tailscale serve (tailnet only). Never use tailscale funnel: it puts this on the public internet.</p>
    <p id="rmMsg" role="status" aria-live="polite"></p></div>
   <div class="sc warn"><h3>DISCLAIMER</h3><p>Provided "as is", without warranty, under the MIT licence. To the extent permitted by law, the authors are not liable for any loss or damage from using it, including lost data, lost work or damage to files or projects. Nothing here limits liability that cannot be limited by law, such as for death or personal injury caused by negligence. Back up your work. You use it at your own risk.</p><p>Not affiliated with or endorsed by Anthropic. AI output can be wrong; check it before relying on it.</p></div>
-  <div class="sc"><h3>WHAT IT RUNS</h3><p>The dashboard chat starts Claude Code (via the Claude Agent SDK, using your own Claude account) in the project folder you pick.</p><p>Agents it starts can read, create, edit and delete files and run shell commands in that folder.</p><p>Hooks in .claude/settings.json forward events to this page on 127.0.0.1.</p><p>The Windows folder browser is opened by a short PowerShell command (no data leaves your computer). Not available in Docker.</p></div>
+  <div class="sc"><h3>WHAT IT RUNS</h3><p>The dashboard chat starts Claude Code (via the Claude Agent SDK, using your own Claude account) in the project folder you pick.</p><p>Agents it starts can read, create, edit and delete files and run shell commands in that folder.</p><p>Hooks in .claude/settings.json forward events to this page on 127.0.0.1.</p><p>The Windows folder browser is opened by a short PowerShell command (no data leaves your computer). Not available in Docker.</p><p>A folder uploaded from a device is written only under the workspace folder, as a new project folder. Uploaded code is stored, not run. Project config (.claude, .mcp.json and similar) is skipped unless you include it, and git data is never uploaded. Agents you start in the folder can run commands.</p></div>
   <div class="sc"><h3>PRIVACY</h3><p>The dashboard listens on this computer only (127.0.0.1). If you turn on Tailscale access, devices on your tailnet can reach it through <code>tailscale serve</code> with an access token. There are no accounts and no analytics.</p><p>Chats and projects are stored in .claude/live/projects.json on this computer.</p><p>Nothing else leaves this computer except what Claude Code itself sends to Anthropic (your prompts and the files Claude reads).</p><p>Account detection only checks that login files or environment variables exist. It never reads their contents. The Claude sign-in choice (your subscription or an API key) is stored on this computer; the login or key itself never is.</p><p>It contacts api.github.com and codeload.github.com only to check for and download updates (no data about you or your projects; can be turned off in Updates above).</p></div>
   <div class="sc" role="region" aria-labelledby="accH"><h3 id="accH">ACCOUNTS</h3><p>Only checks that a login exists. The dashboard never reads or sends your logins; each CLI uses its own.</p><div id="accList" aria-live="polite">Loading...</div><p id="accNote"></p><fieldset id="caBox" style="border:0;margin:8px 0 0;padding:0"><legend>Claude sign-in</legend><label><input type="radio" name="caMode" value="subscription" id="caSub"> Claude subscription (recommended for personal use)</label><label><input type="radio" name="caMode" value="apikey" id="caKey"> API key</label><p id="caMsg" aria-live="polite"></p></fieldset><button id="accRef">Rescan</button></div>
   <div class="sc"><h3>ON-DEMAND TOOLS</h3><p>Off by default. Only the Brain can switch these on, only when a plan needs them. They switch off again when the turn ends.</p><p>Not available inside Docker unless the bridge is reachable from the container.</p><div id="odList"></div></div>
@@ -315,8 +316,8 @@ body.reduce-motion .dot{display:none}
   <button id="clear" title="new session">new</button></div><button id="cc" title="collapse to the side bar" aria-label="Close chat"></button></div>
  <div id="banner">bypass on</div>
  <div id="out"></div><div id="att"></div><div id="slash"></div>
- <form id="in"><button type="button" id="attach" title="attach files or images">+</button><textarea id="txt" rows="1" aria-label="Message" placeholder="message, / for commands, paste images" autocomplete="off"></textarea><button type="button" id="stop" style="display:none">stop</button><button type="submit" id="send">send</button></form>
- <input type="file" id="file" multiple hidden>
+ <form id="in"><button type="button" id="attach" title="attach files or images" aria-label="Attach files">+</button><textarea id="txt" rows="1" aria-label="Message" placeholder="message, / for commands, paste images" autocomplete="off"></textarea><button type="button" id="stop" style="display:none">stop</button><button type="submit" id="send">send</button></form>
+ <input type="file" id="file" multiple hidden aria-label="Attach files" accept="image/*,application/pdf,text/*,.md,.json,.js,.mjs,.cjs,.ts,.tsx,.jsx,.py,.rs,.go,.java,.c,.h,.cpp,.cs,.css,.html,.xml,.yml,.yaml,.toml,.ini,.sh,.sql,.csv,.log,.rb,.php,.swift,.kt">
 </section>
 <div class="rz" id="rz2" title="drag to resize"></div>
 <aside id="subs"><div id="sh"><b>SUBAGENTS</b><button id="sc" title="collapse to the side bar" aria-label="Close subagents"></button></div><div id="sb"></div></aside>
@@ -328,7 +329,9 @@ body.reduce-motion .dot{display:none}
 <div id="pick" hidden><div id="pbox" role="dialog" aria-modal="true" aria-labelledby="ptitle"><h3 id="ptitle">CHOOSE PROJECT FOLDER</h3>
  <div id="prow"><input id="pp" aria-label="Folder path" placeholder="type a path and press Enter"><button id="pgo">go</button></div>
  <div id="pq"></div><div id="pl"></div>
- <div id="pfoot"><input id="pn" aria-label="New folder name" placeholder="new folder name"><button id="pnew">create</button><span id="pe"></span><button id="pcancel">cancel</button><button id="pwin" hidden>Browse with Windows…</button><button id="pok"disabled>Use folder</button></div></div></div>
+ <div id="upan" hidden><div id="upmsg"></div><progress id="uprog" max="1" value="0" hidden></progress><details id="upcfgd" hidden><summary></summary><ul></ul></details><label id="upcfgl" hidden><input type="checkbox" id="upcfg"> Include Claude/editor config</label><div id="upbtn"><button id="upgo" hidden>Confirm</button><button id="updel" hidden>Delete partial folder</button><button id="upx" hidden>Cancel upload</button></div></div><div id="upsr" aria-live="polite"></div>
+ <input type="file" id="pdir" webkitdirectory multiple hidden aria-label="Choose a folder"><input type="file" id="pmulti" multiple hidden aria-label="Choose files">
+ <div id="pfoot"><input id="pn" aria-label="New folder name" placeholder="new folder name"><button id="pnew">create</button><span id="pe"></span><button id="pcancel">cancel</button><button id="pwin" hidden>Browse with Windows…</button><button id="pupl">Choose folder from this device</button><button id="pok"disabled>Use folder</button></div></div></div>
 <div id="dv"><div id="dvp" role="dialog" aria-modal="true" aria-labelledby="dvt" aria-describedby="dvf"><div id="dvh"><span id="dvt"></span><span id="dvf"></span><button id="dvx" type="button" aria-label="Close diff">Close</button></div><pre id="dvb" tabindex="0"></pre></div></div>
 <div id="toast" role="status" aria-live="polite"></div>
 <script>
@@ -622,7 +625,8 @@ out.addEventListener('click',e=>{const b=e.target.closest('button[data-a]');if(!
 function toast(m){const t=$('toast');t.textContent=m;clearTimeout(toast.t);toast.t=setTimeout(()=>t.textContent='',4000)}
 
 // ----- composer
-function drawAtt(){const n=$('att');n.innerHTML='';att.forEach((a,k)=>{const c=document.createElement('span');c.className='chip';c.innerHTML=(a.type.startsWith('image/')?'<img src="data:'+a.type+';base64,'+a.data+'">':'')+esc(a.name)+' <button type="button" class="x" aria-label="Remove attachment">✕</button>';c.querySelector('.x').onclick=()=>{att.splice(k,1);drawAtt()};n.appendChild(c)})}
+function drawAtt(){const n=$('att');n.innerHTML='';att.forEach((a,k)=>{const c=document.createElement('span');c.className='chip';if(String(a.type).startsWith('image/')){const im=document.createElement('img');im.src='data:'+a.type+';base64,'+a.data;c.appendChild(im)}
+ c.appendChild(document.createTextNode(a.name+' '));const x=document.createElement('button');x.type='button';x.className='x';x.setAttribute('aria-label','Remove attachment');x.textContent='✕';x.onclick=()=>{att.splice(k,1);drawAtt()};c.appendChild(x);n.appendChild(c)})}
 function addFile(f){if(f.size>8e6){toast(f.name+' is over 8 MB');return}const r=new FileReader();r.onload=()=>{att.push({name:f.name||'pasted-image.png',type:f.type||'text/plain',data:String(r.result).split(',')[1]});drawAtt()};r.readAsDataURL(f)}
 $('attach').onclick=()=>$('file').click();
 $('file').onchange=e=>{[...e.target.files].forEach(addFile);e.target.value=''};
@@ -724,7 +728,7 @@ async function loadFs(p){pickErr('');const r=await fetch('/fs?path='+encodeURICo
  $('pok').disabled=!j.path;$('pok').textContent=j.path?'Use '+(j.path.split(/[\\/]/).filter(Boolean).pop()||j.path):'Use folder'}
 let pkPrev=null;
 function openPicker(){pkPrev=document.activeElement;$('pick').hidden=false;$('pp').focus();const p=proj();loadFs(p?p.folder:'')}
-function closePicker(){$('pick').hidden=true;if(pkPrev&&pkPrev.focus)pkPrev.focus()}
+function closePicker(){upReset(true);$('pick').hidden=true;if(pkPrev&&pkPrev.focus)pkPrev.focus()}
 $('pcancel').onclick=closePicker;
 $('pick').addEventListener('mousedown',e=>{if(e.target.id==='pick')closePicker()});
 $('pgo').onclick=()=>loadFs($('pp').value.trim());
@@ -737,6 +741,84 @@ $('pwin').onclick=async()=>{const b=$('pwin');b.disabled=true;b.textContent='Ope
  catch{toast('folder browser failed')}
  b.disabled=false;b.textContent='Browse with Windows…'};
 $('pok').onclick=async()=>{if(!fsCur)return;const r=await post('/project/new',{folder:fsCur}),j=await r.json();if(!r.ok){pickErr(j.error||'failed');return}pendingSelect=j.id;closePicker()};
+// ----- upload a folder from this device
+const UP_SKIP_DIR=new Set(['.git','node_modules','.venv','__pycache__','dist','build','.next','target','.cache']);
+const UP_LIM={files:2000,file:25*1048576,total:300*1048576};
+const upGit=r=>{const p=r.toLowerCase().split('/');return p.includes('.git')||p[p.length-1]==='.gitmodules'};
+const upCfg=r=>{const p=r.toLowerCase().split('/'),n=p.length,last=p[n-1];return p.some(x=>x==='.claude'||x==='.cursor'||x==='.husky')||last==='.mcp.json'||(last==='tasks.json'&&p[n-2]==='.vscode')};
+const upSkipFile=n=>/\.log$/i.test(n)||n==='.DS_Store'||n==='Thumbs.db';
+let UPS=null;
+const mb=n=>(n/1048576).toFixed(1)+' MB';
+// separate hidden live region: announced at start, 25% steps, errors and completion, not per file
+const upSay=t=>{$('upsr').textContent=t};
+function upShow(msg,o){o=o||{};$('upcfgl').hidden=!o.cfg;$('upan').hidden=false;$('upmsg').textContent=msg;const p=$('uprog');p.hidden=o.prog===undefined;if(o.prog!==undefined)p.value=o.prog;
+ const d=$('upcfgd'),cf=o.cfgFiles||[];d.hidden=!cf.length;if(cf.length){d.firstChild.textContent='Project config found: '+cf.length+' files';const u=d.querySelector('ul');u.textContent='';
+  cf.slice(0,50).forEach(r=>{const li=document.createElement('li');li.textContent=r;u.appendChild(li)});
+  if(cf.length>50){const li=document.createElement('li');li.textContent='+ '+(cf.length-50)+' more';u.appendChild(li)}}
+ $('upgo').hidden=!o.go;$('upgo').disabled=!!(UPS&&UPS.busy);$('updel').hidden=!o.del;$('upx').hidden=!o.cancel;
+ if(o.prog===undefined)upSay(msg)}
+// stops any upload in progress; with del, also removes the partial folder on the server. Safe to call twice.
+function upReset(del){const s=UPS;UPS=null;if(s){s.cancelled=true;if(s.ac)s.ac.abort();if(del&&s.id&&!s.done)fetch('/upload/'+s.id,{method:'DELETE'}).catch(()=>{})}$('upan').hidden=true;$('upmsg').textContent='';$('upcfgd').hidden=true}
+const upName=n=>String(n||'').replace(/[^A-Za-z0-9 ._-]/g,'_').replace(/^[. ]+/,'').trim().slice(0,60).trim()||'Uploaded project';
+async function upWalk(dir,pre,out){for await(const [n,h] of dir.entries()){
+  if(h.kind==='directory'){if(UP_SKIP_DIR.has(n)){out.skipped++;continue}await upWalk(h,pre+n+'/',out)}
+  else if(upSkipFile(n)||upGit(n))out.skipped++;
+  else{out.files.push({rel:pre+n,file:await h.getFile()});if(out.files.length>20000)throw new Error('too many files')}}}
+function upFromList(list,flat){const out={files:[],skipped:0};let name='';
+ for(const f of list){const parts=flat?[f.name]:(f.webkitRelativePath||f.name).split('/');if(!flat&&parts.length>1){name=name||parts[0];parts.shift()}
+  if(parts.slice(0,-1).some(x=>UP_SKIP_DIR.has(x))||upSkipFile(parts[parts.length-1])||upGit(parts.join('/'))){out.skipped++;continue}
+  out.files.push({rel:parts.join('/'),file:f})}
+ out.name=name||'Uploaded files';return out}
+function upReview(out){
+ const big=out.files.filter(f=>f.file.size>UP_LIM.file);
+ if(big.length){upShow('Refused: '+big[0].rel+' is '+mb(big[0].file.size)+'. Each file may be at most '+mb(UP_LIM.file)+'.'+(big.length>1?' ('+(big.length-1)+' more are too big.)':''));return}
+ const cfg=out.files.filter(f=>upCfg(f.rel));
+ UPS={name:upName(out.name),all:out.files,cfg:cfg.length,cfgFiles:cfg.map(f=>f.rel),skipped:out.skipped};$('upcfg').checked=false;upSummary()}
+// the files that will be sent: config files only when the box is ticked
+function upPick(s){const inc=$('upcfg').checked;const files=inc?s.all:s.all.filter(f=>!upCfg(f.rel));return{files,bytes:files.reduce((a,f)=>a+f.file.size,0),skipped:s.skipped+(inc?0:s.all.length-files.length)}}
+function upSummary(){const s=UPS,p=upPick(s),n=p.files.length;
+ if(!n){upShow('Nothing to upload ('+p.skipped+' skipped).',{cfg:!!s.cfg,cfgFiles:s.cfgFiles});return}
+ if(n>UP_LIM.files){upShow('Refused: '+n+' files is over the limit of '+UP_LIM.files+'.',{cfg:!!s.cfg,cfgFiles:s.cfgFiles});return}
+ if(p.bytes>UP_LIM.total){upShow('Refused: '+mb(p.bytes)+' is over the limit of '+mb(UP_LIM.total)+' in total.',{cfg:!!s.cfg,cfgFiles:s.cfgFiles});return}
+ upShow('"'+s.name+'": '+n+' files, '+mb(p.bytes)+', skipped '+p.skipped+'.'+(s.cfg?'\nWarning: config files (hooks, MCP servers, tasks) can run commands, so they are left out unless you tick the box.':'')+'\nPress Confirm to upload it as a new project.',{go:true,cancel:true,cfg:!!s.cfg,cfgFiles:s.cfgFiles})}
+async function upChoose(){
+ upReset(true);
+ try{
+  if(window.showDirectoryPicker){
+   let dir;try{dir=await window.showDirectoryPicker()}catch(e){if(e&&e.name==='AbortError')return;throw e}
+   upShow('Reading '+dir.name+'…');const out={files:[],skipped:0,name:dir.name};await upWalk(dir,'',out);upReview(out)
+  }else if('webkitdirectory' in $('pdir'))$('pdir').click();
+  else{upShow('This browser cannot choose a whole folder. Pick the files instead; they are uploaded flat, without sub-folders.');$('pmulti').click()}
+ }catch(e){upShow('Could not read the folder: '+(e&&e.message||e))}}
+$('pupl').onclick=upChoose;
+$('upcfg').onchange=()=>{if(UPS&&!UPS.busy)upSummary()};
+$('pdir').onchange=e=>{const l=[...e.target.files];e.target.value='';if(l.length)upReview(upFromList(l,false))};
+$('pmulti').onchange=e=>{const l=[...e.target.files];e.target.value='';if(l.length)upReview(upFromList(l,true))};
+$('upx').onclick=()=>upReset(true);
+$('updel').onclick=()=>upReset(true);
+$('upgo').onclick=async()=>{
+ const s=UPS;if(!s||s.busy)return;const pk=upPick(s);s.files=pk.files;s.bytes=pk.bytes;s.busy=true;s.ac=new AbortController();upShow('Starting…',{prog:0,cancel:true});
+ let sent=0,next=0,failed=null,mile=0;
+ $('upgo').disabled=true;
+ try{
+  // not aborted: the server may already have made the folder, so we need the id back to delete it on cancel
+  const r=await post('/upload/start',{name:s.name,files:s.files.length,bytes:s.bytes,paths:s.files.map(f=>f.rel),allowConfig:$('upcfg').checked}),j=await r.json();
+  if(UPS!==s){if(r.ok&&j.id)fetch('/upload/'+j.id,{method:'DELETE'}).catch(()=>{});return}
+  if(!r.ok){upShow(j.error||'Could not start the upload.');UPS=null;return}
+  s.id=j.id;upSay('Upload started');
+  const worker=async()=>{while(!failed&&next<s.files.length){const f=s.files[next++];
+    const r=await fetch('/upload/'+s.id+'?path='+encodeURIComponent(f.rel),{method:'PUT',headers:{'content-type':'application/octet-stream'},body:f.file,signal:s.ac.signal});
+    if(!r.ok){let m='';try{m=(await r.json()).error}catch{}failed=f.rel+': '+(m||'HTTP '+r.status);return}
+    sent++;upShow('Uploading '+sent+' of '+s.files.length+'…',{prog:sent/s.files.length,cancel:true});
+    const m=Math.floor(sent*4/s.files.length);if(m>mile&&m<4){mile=m;upSay('Uploaded '+m*25+' percent')}}};
+  await Promise.all([worker(),worker(),worker()]);
+  if(UPS!==s)return;
+  if(failed){upShow('Upload stopped. '+failed,{del:true});return}
+  const fr=await post('/upload/'+s.id+'/finish',{}),fj=await fr.json();
+  if(!fr.ok){upShow(fj.error||'Could not finish the upload.',{del:true});return}
+  s.done=true;upSay('Upload complete');pendingSelect=fj.id;closePicker();
+ }catch(e){if(UPS===s)upShow('Upload failed: '+(e&&e.message||e),{del:!!s.id})}
+ finally{s.busy=false}};
 let SUBS={},subSel=null;
 function subList(){const t=thr();return t?(SUBS[t.id]||[]).slice().sort((a,b)=>b.started-a.started):[]}
 function drawBots(){const n=subList().filter(s=>s.status==='running').length;
