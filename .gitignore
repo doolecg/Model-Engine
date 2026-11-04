@@ -1,0 +1,17 @@
+node_modules/
+.claude/live/projects.json
+.playwright-mcp/
+.env
+*.log
+
+# trial todo-app files at repo root
+/PLAN.md
+/package.json
+/storage.js
+/storage.test.js
+/todo.js
+/todo.test.js
+
+# this repo ships its .claude folder (a global ignore hides it by default)
+!/.claude/
+!/CLAUDE.md
