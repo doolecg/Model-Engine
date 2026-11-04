@@ -60,6 +60,27 @@ test('loopback detection', () => {
   assert.ok(!r.isLoopbackHost(undefined, 4777));
 });
 
+test('remote origin: https, configured host, optional valid port', () => {
+  const c = 'pc.tail1234.ts.net';
+  assert.ok(r.isAllowedRemoteOrigin('https://pc.tail1234.ts.net', c));
+  assert.ok(r.isAllowedRemoteOrigin('https://PC.Tail1234.TS.net', c));
+  assert.ok(r.isAllowedRemoteOrigin('https://pc.tail1234.ts.net:8777', c));
+  assert.ok(r.isAllowedRemoteOrigin('https://pc.tail1234.ts.net:443', c));
+  assert.ok(!r.isAllowedRemoteOrigin('https://other.ts.net', c));
+  assert.ok(!r.isAllowedRemoteOrigin('http://pc.tail1234.ts.net', c));
+  assert.ok(!r.isAllowedRemoteOrigin('http://pc.tail1234.ts.net:8777', c));
+  assert.ok(!r.isAllowedRemoteOrigin('https://pc.tail1234.ts.net.evil.com', c));
+  assert.ok(!r.isAllowedRemoteOrigin('https://pc.tail1234.ts.net:abc', c));
+  assert.ok(!r.isAllowedRemoteOrigin('https://pc.tail1234.ts.net:99999', c));
+  assert.ok(!r.isAllowedRemoteOrigin('https://pc.tail1234.ts.net:0', c));
+  assert.ok(!r.isAllowedRemoteOrigin('https://pc.tail1234.ts.net:', c));
+  assert.ok(!r.isAllowedRemoteOrigin('https://user@pc.tail1234.ts.net', c));
+  assert.ok(!r.isAllowedRemoteOrigin('https://pc.tail1234.ts.net:80@evil.com', c));
+  assert.ok(!r.isAllowedRemoteOrigin('https://pc.tail1234.ts.net/path', c));
+  assert.ok(!r.isAllowedRemoteOrigin(undefined, c));
+  assert.ok(!r.isAllowedRemoteOrigin('https://pc.tail1234.ts.net', null));
+});
+
 test('remote host: exact match only', () => {
   const c = 'pc.tail1234.ts.net';
   assert.ok(r.isAllowedRemoteHost('pc.tail1234.ts.net', c));
@@ -76,6 +97,8 @@ test('remote host: exact match only', () => {
   assert.ok(!r.isAllowedRemoteHost('example.com', 'example.com'));
   assert.ok(!r.isAllowedRemoteHost('.ts.net', '.ts.net'));
   assert.ok(!r.isAllowedRemoteHost('a', null));
+  assert.ok(!r.isAllowedRemoteHost('pc.tail1234.ts.net:0', c));
+  assert.ok(!r.isAllowedRemoteHost('pc.tail1234.ts.net:99999', c));
   assert.ok(r.validHost('a.b.ts.net') && !r.validHost('a_b.ts.net') && !r.validHost('a..ts.net') && !r.validHost('A.ts.net'));
 });
 
@@ -212,6 +235,9 @@ test('guard on a throwaway server', async (t) => {
     assert.strictEqual((await call('POST', '/auth/login', { host: RHOST, headers: { origin: 'https://evil.com' }, body: { token: token } })).status, 403);
     const ok = await call('POST', '/auth/login', { host: RHOST, headers: { origin: `https://${RHOST}` }, body: { token } });
     assert.strictEqual(ok.status, 200);
+    const okPort = await call('POST', '/auth/login', { host: `${RHOST}:8777`, headers: { origin: `https://${RHOST}:8777` }, body: { token } });
+    assert.strictEqual(okPort.status, 200);
+    assert.strictEqual((await call('POST', '/auth/login', { host: `${RHOST}:8777`, headers: { origin: `https://${RHOST}:abc` }, body: { token } })).status, 403);
     const sc = [].concat(ok.headers['set-cookie'])[0];
     assert.match(sc, /^me_auth=[A-Za-z0-9_-]{43}; HttpOnly; Secure; SameSite=Strict; Path=\//);
     const cookie = sc.split(';')[0];

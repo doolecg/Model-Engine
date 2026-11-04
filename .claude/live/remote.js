@@ -46,7 +46,14 @@ const isLoopbackHost = (host, port) => host === `127.0.0.1:${port}` || host === 
 function isAllowedRemoteHost(host, configured) {
   if (!validHost(configured) || typeof host !== 'string') return false;
   const m = /^([^:]+)(?::(\d{1,5}))?$/.exec(host.toLowerCase());
-  return !!m && m[1] === configured.toLowerCase();
+  return !!m && m[1] === configured.toLowerCase() && (m[2] === undefined || (+m[2] >= 1 && +m[2] <= 65535));
+}
+
+// Origin must be https://<configured host> with an optional numeric port; no userinfo, path or other extras.
+function isAllowedRemoteOrigin(origin, configured) {
+  if (!validHost(configured) || typeof origin !== 'string') return false;
+  const m = /^https:\/\/([^:/@?#\s]+)(?::(\d{1,5}))?$/.exec(origin.toLowerCase());
+  return !!m && m[1] === configured.toLowerCase() && (m[2] === undefined || (+m[2] >= 1 && +m[2] <= 65535));
 }
 
 // Requests that came through a reverse proxy such as `tailscale serve` carry these headers; a real local browser does not.
@@ -115,4 +122,4 @@ const LOGIN_PAGE = '<!doctype html><html lang="en"><head><meta charset="utf-8"><
   + 'try{var r=await fetch("/auth/login",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({token:document.getElementById("t").value})});'
   + 'if(r.ok)location.reload();else m.textContent=r.status===429?"Too many attempts. Wait a minute.":"That token was not accepted."}catch(x){m.textContent="Could not reach the server."}};</script></body></html>';
 
-module.exports = { validHost, generateToken, hashToken, verifyToken, createSessions, parseCookie, isLoopbackHost, isAllowedRemoteHost, isProxied, createLimiter, restore, publishCommand, parseStatus, detectTailscale, LOGIN_PAGE, SESSION_MS };
+module.exports = { validHost, generateToken, hashToken, verifyToken, createSessions, parseCookie, isLoopbackHost, isAllowedRemoteHost, isAllowedRemoteOrigin, isProxied, createLimiter, restore, publishCommand, parseStatus, detectTailscale, LOGIN_PAGE, SESSION_MS };

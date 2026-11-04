@@ -554,7 +554,7 @@ const server = http.createServer((req, res) => {
   if (loopback && !remote.isProxied(req.headers)) {
     if (origin !== undefined && origin !== `http://127.0.0.1:${PORT}` && origin !== `http://localhost:${PORT}`) { res.writeHead(403); return res.end(); }
   } else if (!loopback && RM.enabled && remote.isAllowedRemoteHost(host, RM.host)) {
-    if (origin !== undefined && origin !== `https://${RM.host}`) { res.writeHead(403); return res.end(); }
+    if (origin !== undefined && !remote.isAllowedRemoteOrigin(origin, RM.host)) { res.writeHead(403); return res.end(); }
     isRemote = true;
   } else { res.writeHead(403); return res.end(); }
   const url = new URL(req.url, 'http://x'), u = url.pathname, q = url.searchParams;
