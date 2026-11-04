@@ -76,7 +76,7 @@ docker compose up --build
 
 Then open http://127.0.0.1:4777. The container publishes the port on your own computer only.
 
-1. Copy `.env.example` to `.env` next to `docker-compose.yml` and set either `CLAUDE_CODE_OAUTH_TOKEN` (your Claude subscription, see [Use your Claude subscription](#use-your-claude-subscription)) or `ANTHROPIC_API_KEY`. A Claude login on the host does not carry into the container. The agents in the container have shell access to `/workspace` and can read these values, so only use them on a machine you trust.
+1. Copy `.env.example` to `.env` next to `docker-compose.yml` and set either `CLAUDE_CODE_OAUTH_TOKEN` (your Claude subscription, see [Use your Claude subscription](#use-your-claude-subscription)) or `ANTHROPIC_API_KEY`. A Claude login on the host does not carry into the container, but the synced token file (see [Keep the Docker login fresh](#keep-the-docker-login-fresh)) does, and it is preferred over `CLAUDE_CODE_OAUTH_TOKEN` in `.env`. The agents in the container have shell access to `/workspace` and can read these values, so only use them on a machine you trust.
 2. Set `WORKSPACE` (in the same `.env` file or your shell) to the folder the agents may edit. They can only touch that folder and the container. The default is `./workspace`.
 3. The dashboard's project list lives in the Docker volume `engine-data`, mounted at `/data`.
 4. Stop it with `docker compose down`. Add `-v` to delete the volume as well.
@@ -86,8 +86,20 @@ Then open http://127.0.0.1:4777. The container publishes the port on your own co
 The dashboard chat can run on your Claude subscription instead of an API key. This is for personal use on your own machine, with your own login; Anthropic's current terms apply, so check them before relying on it.
 
 - Portable folder or terminal runs: nothing to set up. If you are signed in to `claude`, the chat uses that login.
-- Docker: run `claude setup-token` on your PC, then put the token in `.env` as `CLAUDE_CODE_OAUTH_TOKEN=...`. The agents in the container can read it, so only do this on a machine you trust.
+- Docker: either sync your PC's login (see [Keep the Docker login fresh](#keep-the-docker-login-fresh), preferred) or run `claude setup-token` on your PC and put the token in `.env` as `CLAUDE_CODE_OAUTH_TOKEN=...`. The agents in the container can read it, so only do this on a machine you trust.
 - Switch between the subscription and an API key in Settings, Accounts, Claude sign-in. It takes effect on the next run. In subscription mode an `ANTHROPIC_API_KEY` in the environment is ignored, so it cannot silently bill per token.
+
+## Keep the Docker login fresh
+
+The Claude access token your PC uses expires after a few hours; your own Claude Code on the PC refreshes it in `~/.claude/.credentials.json`. `scripts/sync-claude-token.js` copies the current token into `secrets/claude-oauth-token`, which Docker mounts read-only at `/run/host-secrets`. The container reads that file at the start of every chat, so no restart is needed. The file wins over `CLAUDE_CODE_OAUTH_TOKEN` in `.env`.
+
+1. Run `node scripts/sync-claude-token.js` once. It creates `secrets/` (do this before the first `docker compose up`, or Docker creates the folder as root) and prints `synced`, `unchanged` or an error. It never prints the token.
+2. Windows: run `scripts\install-token-sync.cmd` to schedule it every 2 hours and run it once now. The extra at-logon task is optional and only works from an administrator prompt; without it the installer prints "Logon task skipped" and carries on, because the 2-hourly task covers it. A run missed while the PC was off is caught by the next tick, so the first chat after boot can see a token up to 2 hours stale; if chat returns 401, run `node scripts\sync-claude-token.js --refresh`. Remove both tasks with `scripts\remove-token-sync.cmd`.
+3. Linux or macOS: add a cron line such as `0 */2 * * * node /path/to/Model\ Engine/scripts/sync-claude-token.js --quiet --refresh`.
+
+`--refresh` runs `claude -p "ok" --max-turns 1` once when the token has under 30 minutes left, which spends one tiny message on your subscription. The scheduled task uses it; plain runs do not. `--quiet` prints nothing on success, and `--dir <path>` syncs to another folder. Exit codes: 0 ok, 1 no login or invalid, 2 token already expired (open Claude Code on this PC once, or use `--refresh`).
+
+`secrets/` is git-ignored and excluded from the image, but the agents in the container can read it. Only do this on a machine you trust.
 
 ## Using Model Engine
 
@@ -174,7 +186,7 @@ The UI and run council members use the Playwright MCP to look at the running app
 ### Troubleshooting
 
 - **Port 4777 is already in use.** An old server is still running. Stop it by its process ID (the server prints it when it starts), or start the new one on another port with `MODEL_ENGINE_PORT`. The hook uses the same variable.
-- **The chat does not work in Docker.** Put `CLAUDE_CODE_OAUTH_TOKEN=...` (from `claude setup-token`) or `ANTHROPIC_API_KEY=...` in the `.env` file next to `docker-compose.yml`. A login on the host does not reach the container.
+- **The chat does not work in Docker.** Run `node scripts/sync-claude-token.js`, or put `CLAUDE_CODE_OAUTH_TOKEN=...` (from `claude setup-token`) or `ANTHROPIC_API_KEY=...` in the `.env` file next to `docker-compose.yml`. A login on the host does not reach the container.
 - **The diagram stays quiet while I work in a terminal.** Hooks only report when `MODEL_ENGINE_LIVE=1` is set, or when you use the dashboard chat, which sets it for you.
 - **There is no Windows folder button in Docker.** That is expected. Use the built-in browser, which shows the workspace folder.
 - **The updater refuses.** It does not run in Docker (rebuild the image) or in a git checkout (use `git pull`). It also waits while a run is active.
@@ -208,6 +220,7 @@ The live view at http://127.0.0.1:4777:
 - **Session log.** A running list of what each agent did.
 - **Changes tab.** The files being edited, as they are edited. Click a change to see its diff.
 - **Per project.** Each project tab keeps its own session log and diffs.
+- **Own diagram.** Each project tab has its own diagram.
 - **Plan tab.** A chat with the Brain (Opus) that interviews you and writes `PLAN.md` in the project folder. It may only write `PLAN.md` and files under `docs/`. A button then sends that plan to the build chat to work through step by step.
 - **Status? button.** Asks the running agent for a short status without stopping its work.
 - **Accounts.** The Settings page shows which CLIs are installed and whether a login, subscription token or API key exists. It only checks that files or environment variables exist; it never reads or sends them. Your Claude sign-in choice (subscription or API key) is saved in `projects.json`; the login or key itself is not.
@@ -269,6 +282,31 @@ Blocked when connecting remotely, so they work from the PC only: the Windows fol
 To sign devices out: in Settings (on the PC) press "Sign out" next to one device or "Sign out all devices". Changing the username or password, removing it, or generating a new token also signs everyone out, and so does unticking the box. To remove the published address, run `tailscale serve reset` on the PC.
 
 Privacy: no data leaves your tailnet because of this feature. Model Engine reads only your Tailscale name and whether it is running from `tailscale status --json`; it keeps no IP addresses, peers or emails.
+
+## Graph in T3 Code and Claude
+
+The Engine graph is drawn by one module (`.claude/live/scene.js`), so the dashboard, the panel page and the images below are the same picture. Replace `<project folder>` with your project's folder, id or name.
+
+- T3 Code: open `http://127.0.0.1:4777/panel?folder=<project folder>` in the built-in preview panel. It shows only the graph, live, with a project picker and a Log toggle (`&log=0` hides the log). It switches between the wide and tall layout by the panel's size. Over Tailscale the same sign-in applies.
+- SVG (animated, for a browser or desktop-app view): `GET /panel/graph.svg?folder=&layout=wide|tall&width=400..2400&tab=log|changes`
+- PNG (still, for a terminal): `GET /panel/graph.png?folder=&layout=wide|tall&width=400..2400&scale=1..3`. Output is capped at 4096 px wide, and the render takes at most 5 seconds.
+- JSON: `GET /panel/state?folder=` returns the project, the project list, the diagram state, the last 15 log rows and the last 15 changes.
+
+`folder` is matched in this order: project id, exact folder path, a project folder that contains the path (or a path that contains a project folder), project name, then the last folder name of the path (so a Windows path still finds its project inside Docker). With no `folder` you get the running project, else the most recently active one. An unknown folder is a 404. These routes are GET only and follow the same Host, Origin and sign-in checks as the rest of the server.
+
+PNGs are drawn by [resvg](https://github.com/RazrFalcon/resvg) through `@resvg/resvg-js` (MPL-2.0), with the bundled JetBrains Mono TTF files in `.claude/live/fonts` (SIL Open Font License, see `OFL.txt`). If resvg is not installed, the PNG route answers 503 and the rest keeps working.
+
+## Graph viewer (no dashboard needed)
+
+A tiny local page that draws what your Claude models are doing, per project, from the hook events of every Claude session on the PC (T3 Code, the Claude desktop app, the CLI). No Docker, no sign-in, no chat.
+
+1. Run `node scripts/install-hooks.js` once (Windows: `scripts\install-hooks.cmd`). It adds Model Engine hooks to `~/.claude/settings.json`, after saving a backup next to it. Add `--dry-run` to see what it would change.
+2. That is all. The first hook that fires starts the viewer by itself, and it quits after 45 idle minutes (`--idle-min`).
+3. Open `http://127.0.0.1:4779/panel` in T3 Code's preview panel, a browser tab, or the Claude mod. The drop-down switches between projects; a project appears the first time a session runs in its folder (up to 30; your home folder, drive roots and temp folders are skipped).
+
+What it sees: hook events only. Prompts are cut to 60 characters, plus tool names, file paths and the edits Claude makes. It listens on 127.0.0.1 only and nothing leaves the PC. The data lives in `%LOCALAPPDATA%\ModelEngine\viewer.json` (`~/.model-engine/viewer.json` elsewhere).
+
+Remove it with `node scripts/uninstall-hooks.js`; only the Model Engine entries go. Set `MODEL_ENGINE_OFF=1` to switch the hooks off without uninstalling. The port is `MODEL_ENGINE_PORT` (default 4779).
 
 ## Privacy
 

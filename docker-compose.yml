@@ -11,11 +11,15 @@ services:
       # Claude subscription token (from `claude setup-token`) or an API key; the agents in /workspace can read it
       - CLAUDE_CODE_OAUTH_TOKEN
       - ANTHROPIC_API_KEY
+      # synced from the PC by scripts/sync-claude-token.js; read on every chat start, preferred over CLAUDE_CODE_OAUTH_TOKEN
+      - CLAUDE_CODE_OAUTH_TOKEN_FILE=/run/host-secrets/claude-oauth-token
     volumes:
       # project list survives rebuilds
       - engine-data:/data
       # the only host folder the agents can touch
       - ${WORKSPACE:-./workspace}:/workspace
+      # a directory, not a single file: file mounts break when the file is replaced. Create it first (the sync script does).
+      - ./secrets:/run/host-secrets:ro
     restart: unless-stopped
 
 volumes:

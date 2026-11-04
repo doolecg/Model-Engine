@@ -5,6 +5,7 @@ node_modules/
 *.log
 /workspace/
 /.update/
+/secrets/
 
 # trial todo-app files at repo root
 /PLAN.md

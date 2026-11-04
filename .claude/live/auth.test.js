@@ -37,7 +37,54 @@ test('status holds booleans only', () => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), 'auth-'));
   fs.mkdirSync(path.join(home, '.claude')); fs.writeFileSync(path.join(home, '.claude', '.credentials.json'), 'SECRET');
   const st = claudeAuthStatus('apikey', { ANTHROPIC_API_KEY: 'sk-secret', CLAUDE_CODE_OAUTH_TOKEN: '  ' }, home);
-  assert.deepStrictEqual(st, { mode: 'apikey', subscription: { loginFile: true, tokenEnv: false }, apiKeyEnv: true });
+  assert.deepStrictEqual(st, { mode: 'apikey', subscription: { loginFile: true, tokenEnv: false, tokenFile: { present: false, ageMinutes: null } }, apiKeyEnv: true });
   const s = JSON.stringify(st);
   for (const bad of ['sk-secret', 'SECRET', home]) assert.ok(!s.includes(bad));
+});
+
+const TOK = 'tok_' + 'a'.repeat(30);
+const tmpTok = (content) => { const d = fs.mkdtempSync(path.join(os.tmpdir(), 'tokf-')); const f = path.join(d, 't'); fs.writeFileSync(f, content); return f; };
+
+test('token file wins over a stale env value (subscription), trimmed, read every call', () => {
+  const f = tmpTok(TOK + '\n');
+  const env = { ...base(), CLAUDE_CODE_OAUTH_TOKEN_FILE: f };
+  assert.strictEqual(buildClaudeEnv(env).CLAUDE_CODE_OAUTH_TOKEN, TOK);
+  fs.writeFileSync(f, TOK + 'b\n');
+  assert.strictEqual(buildClaudeEnv(env, 'subscription').CLAUDE_CODE_OAUTH_TOKEN, TOK + 'b');
+  assert.strictEqual(env.CLAUDE_CODE_OAUTH_TOKEN, 'o');
+});
+
+test('bad, empty, multi-line, oversize or missing token file is ignored', () => {
+  const bads = ['', '\n', 'short', TOK + '\n' + TOK, 'has space ' + TOK, 'x'.repeat(5000)];
+  for (const c of bads) {
+    const e = buildClaudeEnv({ ...base(), CLAUDE_CODE_OAUTH_TOKEN_FILE: tmpTok(c) });
+    assert.strictEqual(e.CLAUDE_CODE_OAUTH_TOKEN, 'o', JSON.stringify(c.slice(0, 12)));
+  }
+  assert.strictEqual(buildClaudeEnv({ ...base(), CLAUDE_CODE_OAUTH_TOKEN_FILE: path.join(os.tmpdir(), 'nope-none') }).CLAUDE_CODE_OAUTH_TOKEN, 'o');
+});
+
+test('injected readFile is used', () => {
+  const e = buildClaudeEnv({ ...base(), CLAUDE_CODE_OAUTH_TOKEN_FILE: '/x' }, 'subscription', () => TOK);
+  assert.strictEqual(e.CLAUDE_CODE_OAUTH_TOKEN, TOK);
+});
+
+test('apikey mode ignores the token file', () => {
+  const e = buildClaudeEnv({ ...base(), CLAUDE_CODE_OAUTH_TOKEN_FILE: tmpTok(TOK) }, 'apikey');
+  assert.strictEqual(e.CLAUDE_CODE_OAUTH_TOKEN, undefined);
+});
+
+test('status: token file gives booleans and age only, never the token or path', () => {
+  const f = tmpTok(TOK);
+  const old = new Date(Date.now() - 125 * 60000); fs.utimesSync(f, old, old);
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), 'auth-'));
+  const st = claudeAuthStatus('subscription', { CLAUDE_CODE_OAUTH_TOKEN_FILE: f }, home);
+  assert.strictEqual(st.subscription.tokenEnv, true);
+  assert.strictEqual(st.subscription.tokenFile.present, true);
+  assert.ok(st.subscription.tokenFile.ageMinutes >= 124 && st.subscription.tokenFile.ageMinutes <= 127);
+  assert.deepStrictEqual(Object.keys(st.subscription.tokenFile), ['present', 'ageMinutes']);
+  const s = JSON.stringify(st);
+  assert.ok(!s.includes(TOK) && !s.includes(f));
+  const none = claudeAuthStatus('subscription', { CLAUDE_CODE_OAUTH_TOKEN_FILE: tmpTok('bad') }, home);
+  assert.deepStrictEqual(none.subscription.tokenFile, { present: false, ageMinutes: null });
+  assert.strictEqual(none.subscription.tokenEnv, false);
 });

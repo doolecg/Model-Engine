@@ -13,20 +13,34 @@ const { aggregateUsage } = require('./usage.js');
 const updater = require('./updater.js');
 const remote = require('./remote.js');
 const { createUploads } = require('./upload.js');
+const { renderGraphSvg, renderGraphPng } = require('./graph.js');
+const { readTranscriptText } = require('./transcript.js');
 
 const ROOT = path.resolve(__dirname, '..', '..');
-const PORT = Number(process.env.MODEL_ENGINE_PORT) || 4777;
-const HOST = process.env.MODEL_ENGINE_HOST || '127.0.0.1';
-const STORE = process.env.MODEL_ENGINE_STORE || path.join(__dirname, 'projects.json');
+// Viewer mode (node viewer.js): only the graph panel and the hook event intake, loopback only, for every Claude session on the PC.
+const VIEWER = process.env.MODEL_ENGINE_MODE === 'viewer';
+const PORT = Number(process.env.MODEL_ENGINE_PORT) || (VIEWER ? 4779 : 4777);
+const HOST = VIEWER ? '127.0.0.1' : process.env.MODEL_ENGINE_HOST || '127.0.0.1';
+const VIEWER_STORE = process.platform === 'win32' ? path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), 'AppData', 'Local'), 'ModelEngine', 'viewer.json') : path.join(os.homedir(), '.model-engine', 'viewer.json');
+const STORE = process.env.MODEL_ENGINE_STORE || (VIEWER ? VIEWER_STORE : path.join(__dirname, 'projects.json'));
+const PIDFILE = STORE + '.pid';
+const MAX_VIEWER_PROJECTS = 30, SESSION_IDLE_MS = 6 * 3600e3;
+const idleArg = process.argv.indexOf('--idle-min');
+const IDLE_MS = (Number(idleArg > 0 ? process.argv[idleArg + 1] : process.env.MODEL_ENGINE_IDLE_MIN) || 45) * 60e3;
 const MODELS = { sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5', haiku: 'claude-haiku-5-5' };
 const rid = () => crypto.randomUUID().slice(0, 8);
 
-const S = {
+// The diagram state, including which MCP servers were seen, is per project (p.d, see mkD); it is never saved.
+const mkD = () => ({
   calls: 0, verdict: null, opus: 'idle',
   recall: { cg: 0, hs: 0, grep: 0, saved: 0, run: false },
   orch: 'idle', builder: 'idle', orchModel: 'sonnet', council: { ui: 'idle', code: 'idle', run: 'idle' },
-  mcpSeen: {}, ondemand: {}, active: {}, busy: false,
-};
+  ondemand: {}, active: {}, busy: false, last: 0, mcpSeen: {},
+});
+// a subagent left 'running' this long with no events from its project is shown idle (MODEL_ENGINE_STALE_MS is for tests)
+const STALE_MS = Number(process.env.MODEL_ENGINE_STALE_MS) || 45 * 60 * 1000;
+const anyBusy = () => [...projects.values()].some((p) => p.d.busy);
+const subsRunning = (D) => D.builder === 'building' || D.recall.run || Object.values(D.council).includes('running');
 const clients = new Set();
 // Claude sign-in mode: 'subscription' (your Claude login) or 'apikey'. Read at the start of each run, so a change applies to the next run.
 let claudeAuth = 'subscription';
@@ -84,7 +98,7 @@ function projectFor(e) {
   for (const p of projects.values()) { const f = normP(p.folder); if ((c === f || c.startsWith(f + '/')) && (!best || f.length > normP(best.folder).length)) best = p; }
   return best;
 }
-function pulse(wire) { send('pulse', { wire }); }
+function pulse(wire) { send('pulse', { wire, project: CP ? CP.id : null }); }
 
 function loadoutNow() {
   const sk = new Set(), mc = new Set(), home = os.homedir();
@@ -99,39 +113,51 @@ function loadoutNow() {
       if (p && p.mcpServers) Object.keys(p.mcpServers).forEach((k) => mc.add(k));
     } catch {}
   }
-  Object.keys(S.mcpSeen).forEach((k) => mc.add(k));
   return { skills: [...sk].sort(), mcps: [...mc].sort() };
 }
 let LO = null, LOt = 0;
-function loadout() {
+// the installed list is global; seen is the project's own (its mcpSeen), and a seen server is always listed
+function loadout(seen) {
+  seen = seen || {};
+  if (VIEWER) return { skills: [], mcps: Object.keys(seen).sort() };
   if (!LO || Date.now() - LOt > 20000) { LO = loadoutNow(); LOt = Date.now(); }
-  const mc = new Set(LO.mcps); Object.keys(S.mcpSeen).forEach((k) => mc.add(k));
+  const mc = new Set(LO.mcps); Object.keys(seen).forEach((k) => mc.add(k));
   return { skills: LO.skills, mcps: [...mc].sort() };
 }
 // on-demand tools: off by default; only the Brain (reviewer) may switch one on, and only if the user allowed it in Settings
 const ONDEMAND = { blender: { label: 'Frugal Blender', tools: ['discover', 'inspect', 'execute', 'capture'].map((n) => 'mcp__blender__' + n) } };
-function odOff(q) { for (const k of Object.keys(ONDEMAND)) { if (q) try { q.toggleMcpServer(k, false).catch(() => {}); } catch {} } S.ondemand = {}; }
-function odSwitch(text) {
+function odOff(q, D) { for (const k of Object.keys(ONDEMAND)) { if (q) try { q.toggleMcpServer(k, false).catch(() => {}); } catch {} } D.ondemand = {}; }
+function odSwitch(text, D) {
   const t = threads.get(running);
   if (!t || !t.q) return;
   for (const m of String(text || '').toLowerCase().matchAll(/^\s*(enable|disable):\s*([\w-]+)/gm)) {
     const on = m[1] === 'enable', k = m[2];
-    if (!ONDEMAND[k] || !(t.allow || []).includes(k) || !!S.ondemand[k] === on) continue;
+    if (!ONDEMAND[k] || !(t.allow || []).includes(k) || !!D.ondemand[k] === on) continue;
     t.q.toggleMcpServer(k, on).catch(() => {});
-    S.ondemand[k] = on; log('opus', (on ? 'enabled ' : 'disabled ') + ONDEMAND[k].label);
+    D.ondemand[k] = on; log('opus', (on ? 'enabled ' : 'disabled ') + ONDEMAND[k].label);
   }
 }
-function view() { const logs = {}; for (const p of projects.values()) logs[p.id] = { log: p.log, changes: p.changes }; return { ...S, logs, loadout: loadout(), repo: ROOT }; }
+function view() {
+  const logs = {}, states = {}, now = Date.now();
+  for (const p of projects.values()) {
+    logs[p.id] = { log: p.log, changes: p.changes };
+    const d = states[p.id] = { ...p.d, recall: { ...p.d.recall }, council: { ...p.d.council }, mcpSeen: { ...p.d.mcpSeen }, loadout: loadout(p.d.mcpSeen) };
+    if (now - d.last > STALE_MS) {
+      if (d.builder === 'building') d.builder = 'idle';
+      d.recall.run = false;
+      for (const k of Object.keys(d.council)) if (d.council[k] === 'running') d.council[k] = 'idle';
+    }
+  }
+  return { mcpSeen: {}, busy: anyBusy(), states, logs, loadout: loadout(), repo: ROOT };
+}
 let pushT = null;
 function push() { if (pushT) return; pushT = setTimeout(() => { pushT = null; send('state', { state: view() }); }, 80); }
 
 function who(a) {
-  a = (a || '').toLowerCase();
-  if (a === 'reviewer') return 'opus';
-  if (a === 'recall') return 'recall';
-  if (a === 'builder') return 'builder';
-  const m = a.match(/^council-(ui|code|run)$/);
-  return m ? m[1] : null;
+  a = String(a || '');
+  const m = a.match(/council[-_ ]?(ui|code|run)/i);
+  if (m) return m[1].toLowerCase();
+  return /reviewer/i.test(a) ? 'opus' : /recall/i.test(a) ? 'recall' : /builder/i.test(a) ? 'builder' : null;
 }
 function verdict(t) {
   const m = String(t || '').toLowerCase().match(/\b(approve|reject|pass|note|fail)\b/);
@@ -140,39 +166,48 @@ function verdict(t) {
 
 function apply(e, fromSdk) {
   CP = fromSdk ? projectFor({}) : projectFor(e);
+  const D = CP ? CP.d : mkD(); // no matching project: the diagram part goes to a throwaway
+  D.last = Date.now();
   const n = e.hook_event_name, ag = who(e.agent_type);
   if (e.hook_event_name === 'SubagentStart' || e.hook_event_name === 'SubagentStop') subHook(e.hook_event_name, e);
   if (n === 'SessionStart') { if (e.source === 'startup') { if (CP) { CP.t0 = Date.now(); CP.log = []; CP.changes = []; } } log('session', e.source || 'start'); }
   else if (n === 'UserPromptSubmit') {
-    S.busy = true; S.orch = 'thinking'; S.builder = 'idle'; S.verdict = null; S.active = {};
-    S.council = { ui: 'idle', code: 'idle', run: 'idle' };
-    log('you', String(e.prompt || '').replace(/\s+/g, ' ').slice(0, 60));
+    const pr = String(e.prompt || '').trim();
+    if (pr.startsWith('<task-notification>')) { const sm = pr.match(/<summary>([\s\S]*?)<\/summary>/); log('agent', (sm && sm[1].trim().replace(/\s+/g, ' ').slice(0, 60)) || 'background task finished'); }
+    else {
+      // only finished states reset; subagents still running keep their state
+      D.busy = true; D.orch = 'thinking'; D.verdict = null;
+      if (D.builder === 'done') D.builder = 'idle';
+      for (const k of Object.keys(D.council)) if (D.council[k] !== 'running') D.council[k] = 'idle';
+      if (!subsRunning(D)) D.active = {};
+      log('you', pr.replace(/\s+/g, ' ').slice(0, 60));
+    }
   } else if (n === 'SubagentStart' && ag) {
-    if (ag === 'opus') { S.opus = 'awake'; pulse('ask'); log('opus', 'called'); }
-    else if (ag === 'builder') { S.builder = 'building'; pulse('build'); log('builder', 'started'); }
-    else if (ag === 'recall') { S.recall.run = true; pulse('plan'); log('recall', 'started'); }
-    else { S.council[ag] = 'running'; pulse('out:' + ag); log('council', ag + ' started'); }
+    if (ag === 'opus') { D.opus = 'awake'; pulse('ask'); log('opus', 'called'); }
+    else if (ag === 'builder') { D.builder = 'building'; pulse('build'); log('builder', 'started'); }
+    else if (ag === 'recall') { D.recall.run = true; pulse('plan'); log('recall', 'started'); }
+    else { D.council[ag] = 'running'; pulse('out:' + ag); log('council', ag + ' started'); }
   } else if (n === 'SubagentStop' && ag) {
     const v = verdict(e.last_assistant_message);
-    if (ag === 'opus') { S.opus = 'idle'; S.calls++; S.verdict = v === 'reject' ? 'reject' : v === 'approve' ? 'approve' : null; log('opus', v || 'done'); pulse('verdict'); odSwitch(e.last_assistant_message); }
-    else if (ag === 'builder') { S.builder = 'done'; pulse('gate'); log('builder', 'done'); }
-    else if (ag === 'recall') { S.recall.run = false; pulse('ctx'); log('recall', 'done'); }
-    else { S.council[ag] = v === 'note' ? 'note' : v === 'fail' ? 'fail' : v === 'pass' ? 'pass' : 'done'; pulse('f:' + ag); log('council', ag + ' ' + (v || 'done')); }
+    if (ag === 'opus') { D.opus = 'idle'; D.calls++; D.verdict = v === 'reject' ? 'reject' : v === 'approve' ? 'approve' : null; log('opus', v || 'done'); pulse('verdict'); odSwitch(e.last_assistant_message, D); }
+    else if (ag === 'builder') { D.builder = 'done'; pulse('gate'); log('builder', 'done'); }
+    else if (ag === 'recall') { D.recall.run = false; pulse('ctx'); log('recall', 'done'); }
+    else { D.council[ag] = v === 'note' ? 'note' : v === 'fail' ? 'fail' : v === 'pass' ? 'pass' : 'done'; pulse('f:' + ag); log('council', ag + ' ' + (v || 'done')); }
   } else if (n === 'PreToolUse') {
     const pm = String(e.tool_name || '').match(/^mcp__(.+?)__/);
-    if (pm) S.active[pm[1]] = (S.active[pm[1]] || 0) + 1;
+    if (pm) D.active[pm[1]] = (D.active[pm[1]] || 0) + 1;
   } else if (n === 'PostToolUse') {
     const t = e.tool_name || '', m = t.match(/^mcp__(.+?)__(.+)$/);
     if (m) {
-      S.mcpSeen[m[1]] = Date.now();
-      S.active[m[1]] = Math.max(0, (S.active[m[1]] || 1) - 1);
-      if (m[1] === 'codegraph') { S.recall.cg++; log('codegraph', m[2].replace('codegraph_', '')); }
+      D.mcpSeen[m[1]] = Date.now();
+      D.active[m[1]] = Math.max(0, (D.active[m[1]] || 1) - 1);
+      if (m[1] === 'codegraph') { D.recall.cg++; log('codegraph', m[2].replace('codegraph_', '')); }
       else if (m[1] === 'hindsight') {
-        if (/ingest|capture/.test(m[2])) { S.recall.saved++; pulse('commit'); log('hindsight', 'ingest'); }
-        else { S.recall.hs++; log('hindsight', 'recall'); }
+        if (/ingest|capture/.test(m[2])) { D.recall.saved++; pulse('commit'); log('hindsight', 'ingest'); }
+        else { D.recall.hs++; log('hindsight', 'recall'); }
       }
       if (!ag) pulse('call');
-    } else if (t === 'Grep') S.recall.grep++;
+    } else if (t === 'Grep') D.recall.grep++;
     else if (/^(Write|Edit|MultiEdit|NotebookEdit)$/.test(t) && e.tool_input && (typeof e.tool_input.file_path === 'string' ? e.tool_input.file_path : typeof e.tool_input.notebook_path === 'string' ? e.tool_input.notebook_path : '')) {
       const fp = typeof e.tool_input.file_path === 'string' ? e.tool_input.file_path : e.tool_input.notebook_path, rel = path.relative(e.cwd || ROOT, fp);
       if (CP) {
@@ -182,8 +217,8 @@ function apply(e, fromSdk) {
       }
     }
     else if (t === 'Skill') { pulse('load'); log('skill', (e.tool_input && e.tool_input.skill) || ''); }
-    if (!ag && !m && t !== 'Agent' && t !== 'Task') S.orch = 'writing';
-  } else if (n === 'Stop') { const rt = threads.get(running); odOff(rt && rt.q); S.busy = false; S.active = {}; S.orch = 'done?'; log('orchestrator', 'finished'); }
+    if (!ag && !m && t !== 'Agent' && t !== 'Task') D.orch = 'writing';
+  } else if (n === 'Stop') { const rt = threads.get(running); odOff(rt && rt.q, D); D.busy = false; if (!subsRunning(D)) D.active = {}; D.orch = 'done?'; log('orchestrator', 'finished'); }
   push();
 }
 
@@ -226,11 +261,21 @@ const USAGE_CAP = 5000;
 let usageRows = [];
 const tmeta = (t) => ({ id: t.id, project: t.project, kind: t.kind, mode: t.mode, model: t.model, effort: t.effort, provider: t.provider || 'claude', running: t.running });
 const pmeta = (p) => ({ id: p.id, name: p.name, folder: p.folder, planThread: p.planThread, engineThread: p.engineThread });
-const sendProjects = () => { send('projects', { list: [...projects.values()].map(pmeta) }); send('threads', { list: [...threads.values()].map(tmeta) }); };
+const sendProjects = () => { send('projects', { list: [...projects.values()].map(pmeta) }); if (!VIEWER) send('threads', { list: [...threads.values()].map(tmeta) }); };
 let saveTimer = null;
+const trimChanges = (p) => p.changes.map((c, i, a) => (i < a.length - 10 ? c.slice(0, 3) : c));
+function saveViewer() {
+  try {
+    const out = [...projects.values()].map((p) => ({ id: p.id, name: p.name, folder: p.folder, last: p.d.last, log: p.log, changes: trimChanges(p) }));
+    fs.mkdirSync(path.dirname(STORE), { recursive: true });
+    fs.writeFileSync(STORE + '.tmp', JSON.stringify({ projects: out }));
+    fs.renameSync(STORE + '.tmp', STORE);
+  } catch {}
+}
 function save() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
+    if (VIEWER) return saveViewer();
     try {
       const out = [...projects.values()].map((p) => ({ ...pmeta(p), log: p.log, changes: p.changes.map((c, i, a) => (i < a.length - 10 ? c.slice(0, 3) : c)), threads: [p.planThread, p.engineThread].map((id) => { const t = threads.get(id); return { ...tmeta(t), running: false, sessionId: t.sessionId, sessions: t.sessions || {}, items: t.items.filter((i) => i.kind !== 'perm' || i.status !== 'pending').slice(-200) }; }) }));
       fs.writeFileSync(STORE, JSON.stringify({ projects: out, usage: usageRows, updates: UPD.settings, claudeAuth, remote: { enabled: RM.enabled, host: RM.host, salt: RM.salt, hash: RM.hash, creds: RM.creds, sessions: sessions.dump() } }));
@@ -248,11 +293,22 @@ function recordUsage(t, provider, model, u) {
   save();
 }
 function newProject(folder, name) {
-  const p = { id: rid(), name: name || path.basename(folder), folder, log: [], changes: [], t0: Date.now() };
+  const p = { id: rid(), name: name || path.basename(folder), folder, log: [], changes: [], t0: Date.now(), d: mkD(), sessions: new Map() };
+  if (VIEWER) { projects.set(p.id, p); sendProjects(); save(); return p; }
   p.planThread = mkThread(p.id, 'plan').id; p.engineThread = mkThread(p.id, 'engine').id;
   projects.set(p.id, p); sendProjects(); save(); return p;
 }
+function loadViewer() {
+  try {
+    for (const p of JSON.parse(fs.readFileSync(STORE, 'utf8')).projects || []) {
+      if (projects.size >= MAX_VIEWER_PROJECTS || !p || typeof p.folder !== 'string' || !fs.existsSync(p.folder)) continue;
+      const d = mkD(); d.last = Number(p.last) || 0;
+      projects.set(String(p.id), { id: String(p.id), name: String(p.name), folder: p.folder, log: Array.isArray(p.log) ? p.log.slice(-40) : [], changes: Array.isArray(p.changes) ? p.changes.slice(-60) : [], t0: Date.now(), d, sessions: new Map() });
+    }
+  } catch {}
+}
 function load() {
+  if (VIEWER) return loadViewer();
   try {
     const data = JSON.parse(fs.readFileSync(STORE, 'utf8'));
     if (!Array.isArray(data) && Array.isArray(data.usage)) usageRows = data.usage.slice(-USAGE_CAP);
@@ -261,7 +317,7 @@ function load() {
     if (!Array.isArray(data) && AUTH_MODES.includes(data.claudeAuth)) claudeAuth = data.claudeAuth;
     for (const p of Array.isArray(data) ? data : data.projects || []) {
       if (!fs.existsSync(p.folder)) continue;
-      projects.set(p.id, { id: p.id, name: p.name, folder: p.folder, planThread: p.planThread, engineThread: p.engineThread, log: Array.isArray(p.log) ? p.log.slice(-40) : [], changes: Array.isArray(p.changes) ? p.changes.slice(-60) : [], t0: Date.now() });
+      projects.set(p.id, { id: p.id, name: p.name, folder: p.folder, planThread: p.planThread, engineThread: p.engineThread, log: Array.isArray(p.log) ? p.log.slice(-40) : [], changes: Array.isArray(p.changes) ? p.changes.slice(-60) : [], t0: Date.now(), d: mkD() });
       for (const t of p.threads) threads.set(t.id, { ...t, provider: t.provider || 'claude', sessions: t.sessions || {}, running: false, items: (t.items || []).map((i) => (i.live ? { ...i, live: false } : i)) });
     }
   } catch {}
@@ -321,8 +377,9 @@ function newSub(t, b) {
 }
 function readTranscript(p) {
   try {
-    const items = [];
-    for (const line of fs.readFileSync(p, 'utf8').split('\n')) {
+    const items = [], text = readTranscriptText(p, os.homedir());
+    if (text === null) return [];
+    for (const line of text.split('\n')) {
       if (!line.trim()) continue;
       let o; try { o = JSON.parse(line); } catch { continue; }
       const c = o.message && o.message.content; if (!Array.isArray(c) || o.type !== 'assistant') continue;
@@ -412,7 +469,7 @@ async function runCliThread(t, proj, text, ac) {
 async function runThread(t, text, atts, allow, label) {
   if (running) return false;
   const proj = projects.get(t.project);
-  running = t.id; t.running = true; S.orchModel = t.model; sendProjects();
+  running = t.id; t.running = true; proj.d.orchModel = t.model; sendProjects();
   add(t, { kind: 'user', text, ...(label ? { label } : {}), atts: (atts || []).map((a) => ({ name: a.name, type: a.type })) });
   const ac = new AbortController(); t.ac = ac; t.runId = rid();
   try {
@@ -446,10 +503,10 @@ async function runThread(t, text, atts, allow, label) {
   } finally {
     for (const [id, p] of pending) if (p.t === t) answerPerm(id, false, false, 'run ended');
     for (const s of t.subs || []) if (s.status === 'running') { s.status = 'done'; s.ended = Date.now(); subSend(t, s); }
-    t.running = false; t.q = null; t.ac = null; running = null; S.ondemand = {};
-    if (S.orch === 'thinking' || S.orch === 'writing') S.orch = 'done?';
-    if (S.builder === 'building') S.builder = 'idle';
-    S.busy = false; push(); sendProjects(); save();
+    t.running = false; t.q = null; t.ac = null; running = null; proj.d.ondemand = {};
+    if (proj.d.orch === 'thinking' || proj.d.orch === 'writing') proj.d.orch = 'done?';
+    if (proj.d.builder === 'building') proj.d.builder = 'idle';
+    proj.d.busy = false; push(); sendProjects(); save();
   }
   return true;
 }
@@ -499,7 +556,7 @@ const uploads = createUploads({ root: UPLOAD_ROOT });
 
 // ---------------- updates (logic in updater.js; nothing here runs unless the user or the settings ask) ----------------
 const UPD = { settings: { channel: 'stable', check: true, install: false }, cache: {}, working: false };
-const idle = () => !S.busy && !running && ![...threads.values()].some((t) => t.running);
+const idle = () => !anyBusy() && !running && ![...threads.values()].some((t) => t.running);
 const updBlock = () => updater.refusal({ root: ROOT, busy: !idle() });
 // keeps only valid fields; strict = null when a given field is invalid
 function updSettings(b, strict) {
@@ -559,6 +616,72 @@ async function remoteStatus() {
   return { enabled: RM.enabled, host: RM.host, tokenSet: !!RM.hash, tailscale: { installed: ts.installed, running: ts.running, dnsName: ts.dnsName }, publishCommand: remote.publishCommand(PORT), credentials: { username: RM.creds ? RM.creds.username : null, set: !!RM.creds }, sessions: sessions.list() };
 }
 
+// ----- graph snapshots and the /panel page
+const sceneHash = () => crypto.createHash('sha1').update(fs.readFileSync(path.join(__dirname, 'scene.js'))).digest('hex').slice(0, 10);
+function indexHtml(panel) {
+  const h = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8').replace('__SCENE_V__', sceneHash());
+  return panel ? h.replace('<body data-tab="plan">', '<body class="panel" data-tab="engine">') : h;
+}
+// a change path outside the project folder is shown by file name only, never as a server path
+const pubPath = (s) => { s = String(s); return path.isAbsolute(s) || /^[a-zA-Z]:[\\/]/.test(s) || s.startsWith('\\\\') ? s.split(/[\\/]/).filter(Boolean).pop() || '' : s; };
+function resolveProject(raw) {
+  const list = [...projects.values()];
+  if (!list.length) return null;
+  raw = String(raw || '').trim().slice(0, 1000);
+  if (!raw) {
+    const t = running && threads.get(running), rp = t && projects.get(t.project);
+    return rp || list.reduce((a, b) => (b.d.last > a.d.last ? b : a));
+  }
+  if (projects.has(raw)) return projects.get(raw);
+  if (path.isAbsolute(raw)) {
+    const n = normP(raw), hit = list.find((p) => normP(p.folder) === n);
+    if (hit) return hit;
+    let best = null; // a project folder that contains the given path (the longest wins)
+    for (const p of list) { const f = normP(p.folder); if (n.startsWith(f + '/') && (!best || f.length > normP(best.folder).length)) best = p; }
+    if (best) return best;
+    const inside = list.find((p) => normP(p.folder).startsWith(n + '/')); // the given path contains a project folder
+    if (inside) return inside;
+  }
+  const byName = (s) => list.find((p) => String(p.name).toLowerCase() === s.toLowerCase());
+  // the last folder name also counts, so a Windows path still finds its project inside Docker
+  return byName(raw) || (/[\\/]/.test(raw) ? byName(raw.split(/[\\/]/).filter(Boolean).pop() || '') : null) || null;
+}
+function panelData(p) {
+  const v = view();
+  return {
+    state: { loadout: v.loadout, ...mkD(), ...v.states[p.id] },
+    logs: { log: p.log.slice(-15).map((r) => r.slice(0, 3)), changes: p.changes.slice(-15).map((c) => [c[0], c[1], pubPath(c[2])]) },
+  };
+}
+
+// ----- viewer mode: events from every Claude session on the PC, projects registered from their folder
+const VIEWER_ROUTES = new Set(['/scene.js', '/panel', '/panel/state', '/panel/graph.svg', '/panel/graph.png', '/stream', '/about', '/']);
+let lastEvent = Date.now();
+function viewerProject(e) {
+  if (typeof e.cwd !== 'string' || !path.isAbsolute(e.cwd) || !fs.existsSync(e.cwd)) return null;
+  const full = path.resolve(e.cwd), c = normP(full), tmp = normP(os.tmpdir());
+  if (c === normP(os.homedir()) || path.dirname(full) === full) return null;
+  if ((c === tmp || c.startsWith(tmp + '/')) && process.env.MODEL_ENGINE_VIEWER_TEMP !== '1') return null;
+  const found = projectFor(e);
+  if (found) return found;
+  if (projects.size >= MAX_VIEWER_PROJECTS) {
+    const old = [...projects.values()].reduce((a, b) => (b.d.last < a.d.last ? b : a));
+    projects.delete(old.id);
+  }
+  return newProject(full);
+}
+function viewerEvent(e) {
+  const p = viewerProject(e);
+  if (!p) return;
+  if (e.session_id) {
+    const now = Date.now();
+    p.sessions.set(String(e.session_id).slice(0, 64), now);
+    for (const [k, t] of p.sessions) if (now - t > SESSION_IDLE_MS || p.sessions.size > 50) p.sessions.delete(k);
+  }
+  apply(e);
+  save();
+}
+
 const server = http.createServer((req, res) => {
   const origin = req.headers.origin, host = req.headers.host, loopback = remote.isLoopbackHost(host, PORT);
   let isRemote = false;
@@ -569,6 +692,21 @@ const server = http.createServer((req, res) => {
     isRemote = true;
   } else { res.writeHead(403); return res.end(); }
   const url = new URL(req.url, 'http://x'), u = url.pathname, q = url.searchParams;
+  if (VIEWER) {
+    const get = req.method === 'GET';
+    if (!(get ? VIEWER_ROUTES.has(u) || u.startsWith('/fonts/') : req.method === 'POST' && (u === '/event' || u === '/project/hide'))) { res.writeHead(404); return res.end(); }
+    if (get && u === '/') { res.writeHead(302, { location: '/panel' }); return res.end(); }
+    if (u === '/event') return body(req, (e) => {
+      lastEvent = Date.now();
+      try { if (!e || typeof e !== 'object' || Array.isArray(e)) return done(res, 400); viewerEvent(e); } catch { return done(res, 400); }
+      done(res);
+    }, 1e6);
+    if (u === '/project/hide') return body(req, (b) => {
+      const p = b && projects.get(b.id);
+      if (p) { projects.delete(p.id); sendProjects(); save(); }
+      done(res);
+    }, 4096);
+  }
   if (isRemote) {
     const cookieId = remote.parseCookie(req.headers.cookie, 'me_auth'), chk = sessions.check(cookieId), authed = !!chk;
     if (chk && chk.slid) res.setHeader('set-cookie', sessionCookie(cookieId, chk.remember));
@@ -589,7 +727,7 @@ const server = http.createServer((req, res) => {
       }, 4096);
     }
     if (!authed) {
-      if (req.method === 'GET' && (u === '/' || u === '/index.html')) {
+      if (req.method === 'GET' && (u === '/' || u === '/index.html' || u === '/panel')) {
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'" });
         return res.end(remote.LOGIN_PAGE);
       }
@@ -607,7 +745,32 @@ const server = http.createServer((req, res) => {
   }
   if (req.method === 'GET' && (u === '/'|| u === '/index.html')) {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-    return res.end(fs.readFileSync(path.join(__dirname, 'index.html')));
+    return res.end(indexHtml(false));
+  }
+  if (req.method === 'GET' && u === '/scene.js') {
+    res.writeHead(200, { 'content-type': 'text/javascript; charset=utf-8', 'cache-control': q.has('v') ? 'public, max-age=31536000, immutable' : 'no-cache' });
+    return res.end(fs.readFileSync(path.join(__dirname, 'scene.js')));
+  }
+  if (req.method === 'GET' && u === '/panel') {
+    res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+    return res.end(indexHtml(true));
+  }
+  if (req.method === 'GET' && (u === '/panel/state' || u === '/panel/graph.svg' || u === '/panel/graph.png')) {
+    res.setHeader('cache-control', 'no-store');
+    const p = resolveProject(q.get('folder'));
+    if (!p) return json(res, { error: 'no such project' }, 404);
+    const d = panelData(p);
+    if (u === '/panel/state') return json(res, { project: { id: p.id, name: p.name }, projects: [...projects.values()].map((x) => ({ id: x.id, name: x.name })), state: d.state, log: d.logs.log, changes: d.logs.changes, at: Date.now(), ...(VIEWER ? { sessions: [...p.sessions.values()].filter((t) => Date.now() - t < SESSION_IDLE_MS).length, idle: Date.now() - p.d.last > SESSION_IDLE_MS } : {}) });
+    const layout = q.get('layout') === 'tall' ? 'tall' : 'wide', wq = Number(q.get('width'));
+    const width = wq > 0 ? Math.min(2400, Math.max(400, Math.round(wq))) : layout === 'tall' ? 480 : 1024, tab = q.get('tab') === 'changes' ? 'changes' : 'log';
+    if (u === '/panel/graph.svg') {
+      res.writeHead(200, { 'content-type': 'image/svg+xml; charset=utf-8', 'cache-control': 'no-store' });
+      return res.end(renderGraphSvg(d.state, d.logs, { layout, width, tab, animated: true }));
+    }
+    const svg = renderGraphSvg(d.state, d.logs, { layout, width, tab, animated: false });
+    renderGraphPng(svg, { scale: Number(q.get('scale')), timeoutMs: 5000 }).then((buf) => { res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store' }); res.end(buf); })
+      .catch((er) => { const soft = er.code === 'RESVG_UNAVAILABLE' || er.code === 'RENDER_TIMEOUT' || er.code === 'RENDER_BUSY'; json(res, { error: soft ? er.message : er.code === 'SVG_TOO_LARGE' ? 'image too large' : 'render failed' }, soft ? 503 : er.code === 'SVG_TOO_LARGE' ? 413 : 500); });
+    return;
   }
   if (req.method === 'GET' && u.startsWith('/fonts/')) {
     const FONTS = path.join(__dirname, 'fonts'), name = u.slice(7);
@@ -620,6 +783,7 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && u === '/about') {
     let version = '0.0.0';
     try { version = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')).version; } catch {}
+    if (VIEWER) return json(res, { mode: 'viewer', version, port: PORT, pid: process.pid, node: process.version });
     return json(res, { version, port: PORT, root: path.basename(ROOT), node: process.version, nativePicker: NATIVE_PICKER });
   }
   if (req.method === 'GET' && u === '/update/status') return json(res, updStatus());
@@ -646,13 +810,15 @@ const server = http.createServer((req, res) => {
     const w = (o) => res.write(`data: ${JSON.stringify(o)}\n\n`);
     w({ type: 'state', state: view() });
     w({ type: 'projects', list: [...projects.values()].map(pmeta) });
-    w({ type: 'threads', list: [...threads.values()].map(tmeta) });
-    for (const t of threads.values()) w({ type: 'items', thread: t.id, items: t.items });
-    for (const t of threads.values()) w({ type: 'subs', thread: t.id, list: (t.subs || []).map((s) => ({ ...s, items: s.items.slice(-40) })) });
-    if (cmds.length) w({ type: 'commands', list: cmds });
+    if (!VIEWER) {
+      w({ type: 'threads', list: [...threads.values()].map(tmeta) });
+      for (const t of threads.values()) w({ type: 'items', thread: t.id, items: t.items });
+      for (const t of threads.values()) w({ type: 'subs', thread: t.id, list: (t.subs || []).map((s) => ({ ...s, items: s.items.slice(-40) })) });
+      if (cmds.length) w({ type: 'commands', list: cmds });
+    }
     clients.add(res); if (isRemote) remoteStreams.set(res, sessions.hashOf(remote.parseCookie(req.headers.cookie, 'me_auth')));
     req.on('close', () => { clients.delete(res); remoteStreams.delete(res); });
-    prefetch();
+    if (!VIEWER) prefetch();
     return;
   }
   if (req.method === 'GET' && u === '/fs') {
@@ -825,7 +991,7 @@ const server = http.createServer((req, res) => {
     }
     for (const k of ['mode', 'model', 'effort']) if (b[k] !== undefined) t[k] = b[k];
     if (t.q) { if (b.mode) t.q.setPermissionMode(b.mode).catch(() => {}); if (b.model) t.q.setModel(MODELS[b.model] || b.model).catch(() => {}); }
-    if (t.kind === 'engine' && !running) { S.orchModel = t.model; push(); }
+    if (t.kind === 'engine' && !running) { const pr = projects.get(t.project); if (pr) pr.d.orchModel = t.model; push(); }
     sendProjects(); save(); done(res);
   });
   if (u === '/thread/clear') return body(req, (b) => {
@@ -859,11 +1025,12 @@ const server = http.createServer((req, res) => {
 const RESTARTED = process.env.MODEL_ENGINE_RESTART === '1';
 delete process.env.MODEL_ENGINE_RESTART;
 function start(left) {
-  const onErr = (er) => { if (RESTARTED && er.code === 'EADDRINUSE' && left > 0) setTimeout(() => start(left - 1), 500); else throw er; };
+  const onErr = (er) => { if (VIEWER && er.code === 'EADDRINUSE') process.exit(0); if (RESTARTED && er.code === 'EADDRINUSE' && left > 0) setTimeout(() => start(left - 1), 500); else throw er; };
   server.once('error', onErr);
   server.listen(PORT, HOST, () => {
     server.off('error', onErr);
     load();
+    if (VIEWER) return viewerReady();
     uploads.cleanStale();
     setInterval(() => uploads.sweep(), 60e3).unref();
     setInterval(() => uploads.sweepStalls(), 15e3).unref();
@@ -882,4 +1049,27 @@ if (!IN_DOCKER && !['127.0.0.1', '::1', 'localhost'].includes(HOST)) {
   }
   console.warn('WARNING: MODEL_ENGINE_ALLOW_LAN=1: listening on ' + HOST + ' outside Docker. Anyone on the network can reach this server.');
 }
-start(20);
+// a second viewer exits quietly when the first one is alive and answering
+function viewerAlive(cb) {
+  let pid = 0, once = false;
+  const fin = (v) => { if (!once) { once = true; cb(v); } };
+  try { pid = Number(fs.readFileSync(PIDFILE, 'utf8')); } catch {}
+  if (!pid || pid === process.pid) return fin(false);
+  try { process.kill(pid, 0); } catch { return fin(false); }
+  const r = http.get({ host: '127.0.0.1', port: PORT, path: '/about', timeout: 600 }, (res) => { res.resume(); fin(res.statusCode === 200); });
+  r.on('error', () => fin(false));
+  r.on('timeout', () => { r.destroy(); fin(false); });
+}
+function viewerReady() {
+  fs.mkdirSync(path.dirname(STORE), { recursive: true });
+  fs.writeFileSync(PIDFILE, String(process.pid));
+  process.on('exit', () => {
+    clearTimeout(saveTimer); saveViewer();
+    try { if (fs.readFileSync(PIDFILE, 'utf8') === String(process.pid)) fs.unlinkSync(PIDFILE); } catch {}
+  });
+  for (const sig of ['SIGINT', 'SIGTERM', 'SIGHUP']) process.on(sig, () => process.exit(0));
+  lastEvent = Date.now();
+  setInterval(() => { if (!clients.size && Date.now() - lastEvent > IDLE_MS) process.exit(0); }, Math.min(30e3, Math.max(50, IDLE_MS / 4))).unref();
+}
+if (VIEWER) viewerAlive((alive) => (alive ? process.exit(0) : start(20)));
+else start(20);

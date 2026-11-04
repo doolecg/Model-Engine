@@ -4,6 +4,7 @@ docs
 .claude/live/projects.json
 .playwright-mcp
 .env
+secrets
 *.log
 # trial files at repo root
 /PLAN.md
