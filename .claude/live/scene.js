@@ -14,13 +14,13 @@
     + '@keyframes march{to{stroke-dashoffset:-22}}@keyframes fill{0%{transform:scaleX(0)}70%,100%{transform:scaleX(1)}}@keyframes pulse{50%{opacity:.3}}';
   const CS = { idle: ['idle', C.d, 'zero'], running: ['running…', C.t, 'run'], pass: ['✓ pass', C.g, 'full'], note: ['⚠ note', C.a, 'full'], fail: ['✕ fail', C.r, 'full'], done: ['✓ done', C.d, 'full'] };
 
-  // opts: document, layout 'wide'|'tall', width (px, sets the svg size), svg (existing element to draw into),
-  // reduceMotion() -> bool, tab 'log'|'chg', onBotClick(), onChangeRow(entry, i), onTabChange(tab)
+  // opts: document, layout 'wide'|'tall'|'portrait', log (false: no log panel at all, the viewBox shrinks), width (px, sets the svg size),
+  // svg (existing element to draw into), reduceMotion() -> bool, tab 'log'|'chg', onBotClick(), onChangeRow(entry, i), onTabChange(tab)
   function createScene(opts) {
-    const document = opts.document, layout = opts.layout === 'tall' ? 'tall' : 'wide';
+    const document = opts.document, layout = opts.layout === 'tall' || opts.layout === 'portrait' ? opts.layout : 'wide';
     const reduced = () => !!(opts.reduceMotion && opts.reduceMotion());
     const W = {}, BIND = [], BOTS = [];
-    let P, FID = '', FMIN = 0, last = null, logFit = null, logG = null, logOn = true, fw = 0, fh = 0, tallVB = [0, 0];
+    let P, FID = '', FMIN = 0, last = null, logFit = null, logG = null, logOn = opts.log !== false, fw = 0, fh = 0, tallVB = [0, 0];
 
     function mkel(t, a, x) { const e = document.createElementNS(NS, t); for (const k in a) e.setAttribute(k, a[k]); if (x != null) e.textContent = x; return e; }
     function kbd(e, role, label) {
@@ -72,6 +72,8 @@
         if (!reduced()) try { w.st.beginElement(); w.m.beginElement(); } catch {}
       });
     }
+    // snapshots: light the wires of key k with no timer (the caller says who is flowing)
+    function flow(k, on) { (W[k] || []).forEach((w) => w.fl.classList.toggle('on', !!on)); }
     const bind = (f) => BIND.push(f);
     function actBind(r, col, fn) {
       const o = r.getAttribute('stroke'); r.style.setProperty('--c', col);
@@ -191,7 +193,9 @@
       wire('f:code', [[980, 228], [1004, 228], [1004, 28], [720, 28], [720, 68]], C.g, { dur: 2 });
       wire('f:run', [[980, 356], [1004, 356], [1004, 28], [720, 28], [720, 68]], C.g, { dur: 2 });
       T(862, 22, 'findings', C.d, 10, 'middle');
-      const root = P; logG = el('g', {}); P = logG; logFit = logPanel(20, 462, 984, 176, 60, 12, 20); P = root;
+      const root = P;
+      if (!logOn) { root.setAttribute('viewBox', '0 0 1024 450'); return; }
+      logG = el('g', {}); P = logG; logFit = logPanel(20, 462, 984, 176, 60, 12, 20); P = root;
     }
 
     function tallScene() {
@@ -214,8 +218,44 @@
       wire('out:ui', [[190, 498], [190, 512], [104, 512], [104, 548]], C.d); wire('out:code', [[190, 498], [190, 548]], C.d, { dur: 1 }); wire('out:run', [[190, 498], [190, 512], [309, 512], [309, 548]], C.d);
       [['ui', 71], ['code', 190], ['run', 309]].forEach((n) => wire('f:' + n[0], [[n[1], 640], [n[1], 664], [382, 664], [382, 368], [364, 368]], C.g, { dur: 2 }));
       wire('commit', [[364, 100], [377, 100], [377, 230], [364, 230]], C.a, { nd: 1, dur: 1.6 }); P = root;
-      const LY = GY + CY + CH + 36, LH = 330; logG = el('g', {}); P = logG; logPanel(13, LY, 364, LH, 6, 12, 44, 48, 22); P = root; FMIN = 0;
-      tallVB = [LY + LH + 12, LY - 8]; root.setAttribute('viewBox', '0 0 390 ' + tallVB[0]);
+      const LY = GY + CY + CH + 36, LH = 330; tallVB = [LY + LH + 12, LY - 8];
+      if (logOn) { logG = el('g', {}); P = logG; logPanel(13, LY, 364, LH, 6, 12, 44, 48, 22); P = root; }
+      FMIN = 0; root.setAttribute('viewBox', '0 0 390 ' + tallVB[logOn ? 0 : 1]);
+    }
+
+    // the wide scene's cards, groups and wires re-flowed into two columns for a tall pane (viewBox 672 x 1008 with the log, 672 x 822 without)
+    function portraitScene() {
+      mk('0 0 672 1008');
+      grp(8, 40, 244, 170, 'ORCHESTRATOR', C.g); grp(412, 40, 244, 170, 'MEMORY', C.a); grp(8, 250, 244, 170, 'BRAIN', C.p); grp(412, 250, 244, 170, 'BUILDER', C.t); grp(8, 470, 244, 344, 'LOADOUT', C.t); grp(412, 470, 244, 344, 'COUNCIL', C.g);
+      actBind(card(20, 68, 220, 130, C.g), C.g, (s) => s.orch === 'thinking' || s.orch === 'writing'); botIcon(192, 76); T(36, 92, 'ORCHESTRATOR', C.t, 14, 'start', 1); orchBits(36, 134, 36, 142, 188, 224, 134, 16, 36, 108);
+      T(36, 166, '▸ talks to you', C.d, 11); T(36, 182, '▸ asks the Brain', C.d, 11);
+      actBind(card(20, 278, 220, 130, C.p), C.p, (s) => s.opus === 'awake'); T(36, 302, 'OPUS 5.5', C.t, 15, 'start', 1); T(36, 318, 'plan + final gate', C.d, 11);
+      ['▸ plan locks', '▸ same error ×2', '▸ before done'].forEach((s, i) => T(36, 342 + i * 16, s, C.d, 12));
+      opusBits(36, 400, 224, 400, 226, 298);
+      actBind(card(424, 68, 220, 130), C.c, (s) => s.recall.run); T(440, 92, 'RECALL', C.t, 15, 'start', 1); T(628, 92, 'haiku 5.5', C.d, 11, 'end');
+      actBind(el('rect', { x: 440, y: 106, width: 188, height: 40, rx: 8, fill: 'none', stroke: C.c }), C.c, (s) => s.active && s.active.codegraph > 0); T(452, 124, '● CODEGRAPH', C.c, 11, 'start', 1);
+      actBind(el('rect', { x: 440, y: 152, width: 188, height: 40, rx: 8, fill: 'none', stroke: C.a }), C.a, (s) => s.active && s.active.hindsight > 0); T(452, 170, '● HINDSIGHT', C.a, 11, 'start', 1);
+      recallBits(452, 138, 452, 184);
+      actBind(card(424, 278, 220, 130), C.t, (s) => s.builder === 'building'); botIcon(606, 286); T(440, 302, 'BUILDER', C.t, 15, 'start', 1); T(440, 318, 'sonnet 5.5 · projects only', C.d, 11); builderBits(440, 344, 440, 352, 188); T(440, 378, 'applies council findings', C.d, 11);
+      card(20, 498, 220, 304); T(36, 520, 'LOADOUT', C.t, 12, 'start', 1); el('path', { d: 'M36,530H224', stroke: C.gl }); skillsMcps([34, 146], 566, 16, 14);
+      [['ui', 498, 'UI', 'layout · screenshots'], ['code', 602, 'CODE', 'diff · bugs · style'], ['run', 706, 'RUN', 'tests · app boots']].forEach((n) => councilCard(n[0], 440, n[1], 192, 96, n[2], n[3], true));
+      wire('ask', [[100, 198], [100, 278]], C.p, { nd: 1, dur: 1 }); T(108, 238, 'ask', C.d, 10);
+      wire('verdict', [[140, 278], [140, 198]], C.p, { nd: 1, dur: 1 }); T(148, 238, 'verdict', C.d, 10);
+      wire('plan', [[240, 322], [276, 322], [276, 100], [424, 100]], C.p, { nd: 1, dur: 1.6 });
+      wire('ctx', [[534, 198], [534, 278]], C.c, { nd: 1 }); T(542, 242, 'CTX', C.d, 9);
+      wire('build', [[240, 372], [424, 372]], C.t, { dur: 1.4 }); T(332, 365, 'delegate → builder', C.d, 10, 'middle');
+      wire('gate', [[424, 395], [240, 395]], C.p, { dash: '7 6', dur: 1.4 }); T(332, 388, 'done? · same error ×2 → brain', C.d, 10, 'middle');
+      wire('commit', [[240, 343], [312, 343], [312, 170], [424, 170]], C.a, { dur: 1.8 }); T(320, 232, 'commit → memory', C.a, 10);
+      wire('load', [[460, 408], [460, 432], [60, 432], [60, 498]], C.t, { dur: 1 }); T(466, 424, 'load', C.d, 10);
+      wire('call', [[110, 498], [110, 446], [500, 446], [500, 408]], C.c, { dur: 1 }); T(506, 424, 'call', C.d, 10);
+      [['ui', 530], ['code', 634], ['run', 738]].forEach((n) => {
+        wire('out:' + n[0], [[570, 408], [570, 458], [424, 458], [424, n[1]], [440, n[1]]], C.d);
+        wire('f:' + n[0], [[632, n[1]], [664, n[1]], [664, 330], [644, 330]], C.g, { dur: 2 });
+      });
+      T(658, 455, 'findings', C.d, 10, 'end');
+      const root = P;
+      if (!logOn) { root.setAttribute('viewBox', '0 0 672 822'); return; }
+      logG = el('g', {}); P = logG; logFit = logPanel(20, 826, 632, 174, 8, 12, 20); P = root; logFit(174);
     }
 
     function render() { if (last) BIND.forEach((f) => f(last.s, last.ex)); }
@@ -228,18 +268,18 @@
     }
     // hide or show the log panel (the /panel page's Log toggle)
     function setLog(on) {
-      logOn = !!on; logG.setAttribute('display', logOn ? 'inline' : 'none');
-      if (layout === 'wide') { if (fw && fh) fit(fw, fh); else svg.setAttribute('viewBox', '0 0 1024 ' + (logOn ? 640 : 450)); } else svg.setAttribute('viewBox', '0 0 390 ' + tallVB[logOn ? 0 : 1]);
+      if (!logG) return; logOn = !!on; logG.setAttribute('display', logOn ? 'inline' : 'none');
+      if (layout === 'wide') { if (fw && fh) fit(fw, fh); else svg.setAttribute('viewBox', '0 0 1024 ' + (logOn ? 640 : 450)); } else if (layout === 'portrait') svg.setAttribute('viewBox', '0 0 672 ' + (logOn ? 1008 : 822)); else svg.setAttribute('viewBox', '0 0 390 ' + tallVB[logOn ? 0 : 1]);
     }
 
-    const svg = layout === 'wide' ? (wideScene(), P) : (tallScene(), P);
+    const svg = (layout === 'wide' ? wideScene() : layout === 'portrait' ? portraitScene() : tallScene(), P);
     if (layout === 'wide') fit(1024, 640);
     if (opts.width) {
       const vb = svg.getAttribute('viewBox').split(' ').map(Number);
       svg.setAttribute('width', opts.width); svg.setAttribute('height', Math.round(opts.width * vb[3] / vb[2]));
     }
     return {
-      svg, fit, pulse, setLog,
+      svg, fit, pulse, flow, setLog,
       // state: the merged diagram state; extra: { log: [...], changes: [...] } for the log panel
       apply(state, extra) { last = { s: state, ex: extra || {} }; render(); },
       setBots(n) { BOTS.forEach((b) => { b.t.textContent = n ? String(n) : ''; b.h.setAttribute('stroke', n ? C.g : C.d); }); },

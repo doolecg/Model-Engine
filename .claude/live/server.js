@@ -13,7 +13,7 @@ const { aggregateUsage } = require('./usage.js');
 const updater = require('./updater.js');
 const remote = require('./remote.js');
 const { createUploads } = require('./upload.js');
-const { renderGraphSvg, renderGraphPng } = require('./graph.js');
+const { renderGraphSvg, renderGraphPng, pickLayout } = require('./graph.js');
 const { readTranscriptText } = require('./transcript.js');
 
 const ROOT = path.resolve(__dirname, '..', '..');
@@ -36,9 +36,12 @@ const mkD = () => ({
   recall: { cg: 0, hs: 0, grep: 0, saved: 0, run: false },
   orch: 'idle', builder: 'idle', orchModel: 'sonnet', council: { ui: 'idle', code: 'idle', run: 'idle' },
   ondemand: {}, active: {}, busy: false, last: 0, mcpSeen: {},
+  pulses: {}, // wire key -> time of its last pulse; view() turns it into ms remaining
 });
 // a subagent left 'running' this long with no events from its project is shown idle (MODEL_ENGINE_STALE_MS is for tests)
 const STALE_MS = Number(process.env.MODEL_ENGINE_STALE_MS) || 45 * 60 * 1000;
+// a wire flows this long after its event (MODEL_ENGINE_PULSE_MS is for tests)
+const PULSE_MS = Number(process.env.MODEL_ENGINE_PULSE_MS) || 2200;
 const anyBusy = () => [...projects.values()].some((p) => p.d.busy);
 const subsRunning = (D) => D.builder === 'building' || D.recall.run || Object.values(D.council).includes('running');
 const clients = new Set();
@@ -98,7 +101,7 @@ function projectFor(e) {
   for (const p of projects.values()) { const f = normP(p.folder); if ((c === f || c.startsWith(f + '/')) && (!best || f.length > normP(best.folder).length)) best = p; }
   return best;
 }
-function pulse(wire) { send('pulse', { wire, project: CP ? CP.id : null }); }
+function pulse(wire) { if (CP) CP.d.pulses[wire] = Date.now(); send('pulse', { wire, project: CP ? CP.id : null }); }
 
 function loadoutNow() {
   const sk = new Set(), mc = new Set(), home = os.homedir();
@@ -141,7 +144,8 @@ function view() {
   const logs = {}, states = {}, now = Date.now();
   for (const p of projects.values()) {
     logs[p.id] = { log: p.log, changes: p.changes };
-    const d = states[p.id] = { ...p.d, recall: { ...p.d.recall }, council: { ...p.d.council }, mcpSeen: { ...p.d.mcpSeen }, loadout: loadout(p.d.mcpSeen) };
+    const d = states[p.id] = { ...p.d, recall: { ...p.d.recall }, council: { ...p.d.council }, mcpSeen: { ...p.d.mcpSeen }, loadout: loadout(p.d.mcpSeen), pulses: {} };
+    for (const k of Object.keys(p.d.pulses)) d.pulses[k] = Math.max(0, PULSE_MS - (now - p.d.pulses[k]));
     if (now - d.last > STALE_MS) {
       if (d.builder === 'building') d.builder = 'idle';
       d.recall.run = false;
@@ -646,6 +650,8 @@ function resolveProject(raw) {
   // the last folder name also counts, so a Windows path still finds its project inside Docker
   return byName(raw) || (/[\\/]/.test(raw) ? byName(raw.split(/[\\/]/).filter(Boolean).pop() || '') : null) || null;
 }
+const isAnimating = (s) => s.orch === 'thinking' || s.orch === 'writing' || s.opus === 'awake' || s.builder === 'building' || !!s.recall.run
+  || Object.values(s.council).includes('running') || Object.values(s.pulses || {}).some((ms) => ms > 0);
 function panelData(p) {
   const v = view();
   return {
@@ -760,14 +766,17 @@ const server = http.createServer((req, res) => {
     const p = resolveProject(q.get('folder'));
     if (!p) return json(res, { error: 'no such project' }, 404);
     const d = panelData(p);
-    if (u === '/panel/state') return json(res, { project: { id: p.id, name: p.name }, projects: [...projects.values()].map((x) => ({ id: x.id, name: x.name })), state: d.state, log: d.logs.log, changes: d.logs.changes, at: Date.now(), ...(VIEWER ? { sessions: [...p.sessions.values()].filter((t) => Date.now() - t < SESSION_IDLE_MS).length, idle: Date.now() - p.d.last > SESSION_IDLE_MS } : {}) });
-    const layout = q.get('layout') === 'tall' ? 'tall' : 'wide', wq = Number(q.get('width'));
-    const width = wq > 0 ? Math.min(2400, Math.max(400, Math.round(wq))) : layout === 'tall' ? 480 : 1024, tab = q.get('tab') === 'changes' ? 'changes' : 'log';
+    if (u === '/panel/state') return json(res, { project: { id: p.id, name: p.name }, projects: [...projects.values()].map((x) => ({ id: x.id, name: x.name })), state: d.state, activity: { animating: isAnimating(d.state), frameMs: 250 }, log: d.logs.log, changes: d.logs.changes, at: Date.now(), ...(VIEWER ? { sessions: [...p.sessions.values()].filter((t) => Date.now() - t < SESSION_IDLE_MS).length, idle: Date.now() - p.d.last > SESSION_IDLE_MS } : {}) });
+    const wq = Number(q.get('width')), hq = Number(q.get('height')), clampPx = (v) => Math.min(2400, Math.max(400, Math.round(v)));
+    const lq = q.get('layout'), layout = lq === 'auto' ? pickLayout(wq > 0 ? clampPx(wq) : 0, hq > 0 ? clampPx(hq) : 0) : lq === 'tall' || lq === 'portrait' ? lq : 'wide';
+    const width = wq > 0 ? clampPx(wq) : layout === 'tall' ? 480 : layout === 'portrait' ? 672 : 1024, tab = q.get('tab') === 'changes' ? 'changes' : 'log';
+    const log = q.get('log') !== '0', bgq = q.get('bg'), bg = bgq === 'transparent' || bgq === 'dark' || /^#?[0-9a-f]{6}$/i.test(bgq || '') ? bgq : 'dark';
+    const attr = q.get('anim') === 'attr', phase = Math.min(1000, Math.max(0, Math.round(Number(q.get('phase'))) || 0));
     if (u === '/panel/graph.svg') {
       res.writeHead(200, { 'content-type': 'image/svg+xml; charset=utf-8', 'cache-control': 'no-store' });
-      return res.end(renderGraphSvg(d.state, d.logs, { layout, width, tab, animated: true }));
+      return res.end(renderGraphSvg(d.state, d.logs, { layout, width, tab, log, bg, animated: true, ...(attr ? { anim: 'attr', phase } : {}) }));
     }
-    const svg = renderGraphSvg(d.state, d.logs, { layout, width, tab, animated: false });
+    const svg = renderGraphSvg(d.state, d.logs, { layout, width, tab, log, bg, anim: 'attr', phase });
     renderGraphPng(svg, { scale: Number(q.get('scale')), timeoutMs: 5000 }).then((buf) => { res.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store' }); res.end(buf); })
       .catch((er) => { const soft = er.code === 'RESVG_UNAVAILABLE' || er.code === 'RENDER_TIMEOUT' || er.code === 'RENDER_BUSY'; json(res, { error: soft ? er.message : er.code === 'SVG_TOO_LARGE' ? 'image too large' : 'render failed' }, soft ? 503 : er.code === 'SVG_TOO_LARGE' ? 413 : 500); });
     return;

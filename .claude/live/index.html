@@ -73,7 +73,7 @@ body.np #mode,body.np #effort,body.np #bots,body.np #rsb,body.np #subs,body.np #
 #rch.run::after{content:'';position:absolute;top:3px;right:3px;width:7px;height:7px;border-radius:50%;background:var(--amb);animation:pulse 1.2s ease-in-out infinite}
 body.chat-off #chat,body.chat-off #rz1,body.subs-off #subs,body.subs-off #rz2,body.chat-off.subs-off #dock{display:none}
 .g{width:100%;height:100%;min-height:0}
-#tall{display:none}
+#tall,#portrait{display:none}
 svg text{font-family:"JetBrains Mono","Cascadia Mono",ui-monospace,Consolas,monospace}
 .fl{opacity:0}.fl.on{opacity:1;animation:march 1.2s linear infinite}
 .led{animation:pulse 1.8s ease-in-out infinite}
@@ -258,6 +258,7 @@ body.panel main{padding:6px;overflow:auto}
 body.panel #engineView{display:grid}
 body.panel[data-l=wide] #wide{display:block!important;height:100%}body.panel[data-l=wide] #tall{display:none!important}
 body.panel[data-l=tall] #tall{display:block!important;height:auto}body.panel[data-l=tall] #wide{display:none!important}
+body.panel[data-l=portrait] #portrait{display:block!important;height:100%}body.panel[data-l=portrait] #wide,body.panel[data-l=portrait] #tall{display:none!important}
 </style></head><body data-tab="plan">
 <div id="pbar"><span id="pname"></span><select id="pproj" aria-label="Project"></select><span id="pdot" title="connection">●</span><button id="plog" type="button" aria-pressed="true">Log</button></div>
 <header><span class="brand">MODEL ENGINE</span><nav id="ptabs"></nav><span id="link">○ offline</span></header>
@@ -317,7 +318,7 @@ body.panel[data-l=tall] #tall{display:block!important;height:auto}body.panel[dat
   <div class="sc"><h3>BY MODEL</h3><div id="uMod"></div></div>
   <!-- step 5: local history section (GET /usage/local) goes here -->
  </section>
- <section id="engineView"><div style="min-height:0;min-width:0"><svg id="wide" class="g"></svg><svg id="tall" class="g"></svg></div></section>
+ <section id="engineView"><div style="min-height:0;min-width:0"><svg id="wide" class="g"></svg><svg id="tall" class="g"></svg><svg id="portrait" class="g"></svg></div></section>
 </main>
 <div id="dock"><div class="rz" id="rz1" title="drag to resize"></div>
 <section id="chat">
@@ -362,7 +363,7 @@ document.getElementById('dvx').addEventListener('click',hideDiff);
 document.getElementById('dv').addEventListener('mousedown',e=>{if(e.target.id==='dv')hideDiff()});
 // the graph itself is drawn by /scene.js (shared with the server-side SVG/PNG snapshots)
 const SO={document,reduceMotion:()=>document.body.classList.contains('reduce-motion')||matchMedia('(prefers-reduced-motion:reduce)').matches,onBotClick:()=>openSubs(),onChangeRow:e=>showDiff(e)};
-const SW=EngineScene.createScene({...SO,layout:'wide',svg:document.getElementById('wide')}),ST=EngineScene.createScene({...SO,layout:'tall',svg:document.getElementById('tall')}),SCENES=[SW,ST];
+const SW=EngineScene.createScene({...SO,layout:'wide',svg:document.getElementById('wide')}),ST=EngineScene.createScene({...SO,layout:'tall',svg:document.getElementById('tall')}),SP=EngineScene.createScene({...SO,layout:'portrait',svg:document.getElementById('portrait')}),SCENES=[SW,ST,SP];
 {const sv=SW.svg,fitH=()=>SW.fit(sv.clientWidth,sv.clientHeight);new ResizeObserver(fitH).observe(sv);fitH()}
 {const rl=document.getElementById('rail'),sb=document.getElementById('sub'),wk=document.getElementById('work'),mq=matchMedia('(max-width:700px)'),mv=()=>{if(mq.matches)sb.insertBefore(rl,document.getElementById('folder'));else wk.appendChild(rl)};mq.addEventListener('change',mv);mv()}
 const IDLE={calls:0,verdict:null,opus:'idle',recall:{cg:0,hs:0,grep:0,saved:0,run:false},orch:'idle',builder:'idle',orchModel:'sonnet',council:{ui:'idle',code:'idle',run:'idle'},ondemand:{},active:{},busy:false};
@@ -797,7 +798,7 @@ if(PANEL){
  sl(PQ.get('log')!=='0');
  $('plog').onclick=()=>{const on=!$('plog').classList.contains('on');sl(on);PQ.set('log',on?'1':'0');history.replaceState(null,'','?'+PQ)};
  $('pproj').onchange=()=>{curP=$('pproj').value;const p=proj();$('pname').textContent=p?p.name:'';PQ.set('folder',curP);history.replaceState(null,'','?'+PQ);render()};
- const mn=document.querySelector('main'),lay=()=>{document.body.dataset.l=mn.clientWidth<700?'tall':'wide'};
+ const mn=document.querySelector('main'),lay=()=>{const w=mn.clientWidth,h=mn.clientHeight,o=PQ.get('layout');document.body.dataset.l=o==='wide'||o==='tall'||o==='portrait'?o:w<420?'tall':h>1.15*w?'portrait':w<700?'tall':'wide'};
  new ResizeObserver(lay).observe(mn);lay()}
 connect();
 </script></body></html>

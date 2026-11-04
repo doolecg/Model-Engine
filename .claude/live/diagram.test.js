@@ -110,10 +110,11 @@ test('diagram state is per project and subagents survive prompts', async () => {
     // an unrelated folder is dropped, nothing changes
     const other = tmp('me-other-');
     try {
-      const before = JSON.stringify((await state()).states);
+      const fixed = (st) => JSON.stringify(st, (k, v) => (k === 'pulses' ? undefined : v)); // pulses count down with time
+      const before = fixed((await state()).states);
       await ev(other, 'SubagentStart', { agent_type: 'recall', agent_id: 'x4' });
       s = await state();
-      assert.strictEqual(JSON.stringify(s.states), before);
+      assert.strictEqual(fixed(s.states), before);
     } finally { fs.rmSync(other, { recursive: true, force: true }); }
 
     // closing a project removes its state; a new project starts idle

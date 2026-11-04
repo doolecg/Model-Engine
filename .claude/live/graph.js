@@ -23,25 +23,65 @@ function stillen(svg) {
   });
 }
 
+// anim=attr: no CSS, no SMIL. What animates in the dashboard carries explicit attributes a client can advance:
+// stroke-dasharray, stroke-dashoffset and data-flow="<period>" (the dasharray sum); pulsing LEDs carry data-pulse="1".
+// Offset for a phase: -((phase * PHASE_STEP) mod period).
+const PHASE_STEP = 2;
+const hasClass = (e, c) => (e.getAttribute('class') || '').split(/\s+/).includes(c);
+function attrAnim(svg, phase) {
+  const off = (period) => -((phase * PHASE_STEP) % period) || 0;
+  const flow = (e, dash) => {
+    const period = dash.split(/\s+/).reduce((a, n) => a + (Number(n) || 0), 0);
+    e.setAttribute('stroke-dasharray', dash); e.setAttribute('data-flow', period); e.setAttribute('stroke-dashoffset', off(period));
+  };
+  walk(svg, (e) => {
+    if (hasClass(e, 'act')) { e.setAttribute('stroke-width', 1.6); flow(e, '6 5'); }
+    else if (hasClass(e, 'fl')) { if (hasClass(e, 'on')) { e.setAttribute('opacity', 1); flow(e, e.getAttribute('stroke-dasharray') || '4 7'); } else e.setAttribute('opacity', 0); }
+    else if (hasClass(e, 'led')) e.setAttribute('data-pulse', 1);
+  });
+}
+
 // state: the merged diagram state (as the dashboard sees it); logs: { log: [[t,unit,msg]], changes: [[t,tool,path]] }
-// o: layout 'wide'|'tall', width (px), animated (default true), tab 'log'|'changes'
+// width x height (px) of the pane -> the layout that suits it: portrait when clearly taller than wide (and >= 420 wide), tall when narrow
+function pickLayout(width, height) {
+  const w = Number(width), h = Number(height);
+  if (!(w > 0)) return 'wide';
+  if (w < 420) return 'tall';
+  return h > 1.15 * w ? 'portrait' : 'wide';
+}
+const HEX = /^#?([0-9a-f]{6})$/i;
+// o.bg: 'dark' (default), 'transparent' (no background rect at all) or '#rrggbb'
+function bgFill(bg) {
+  if (bg === 'transparent') return null;
+  const m = typeof bg === 'string' && HEX.exec(bg);
+  return m ? '#' + m[1].toLowerCase() : scene.C.bg;
+}
+
+// o: layout 'wide'|'tall'|'portrait', width (px), animated (default true), anim 'attr' (see attrAnim; implies a still), phase 0..1000, tab 'log'|'changes', log (false: no log panel), bg
 function renderGraphSvg(state, logs, o) {
   o = o || {};
-  const layout = o.layout === 'tall' ? 'tall' : 'wide', animated = o.animated !== false;
-  const width = Math.round(Number(o.width)) || (layout === 'tall' ? 480 : 1024);
+  const layout = o.layout === 'tall' || o.layout === 'portrait' ? o.layout : 'wide', attr = o.anim === 'attr', animated = !attr && o.animated !== false;
+  const width = Math.round(Number(o.width)) || (layout === 'tall' ? 480 : layout === 'portrait' ? 672 : 1024);
   const doc = createDocument();
-  const sc = scene.createScene({ document: doc, layout, width, tab: o.tab === 'changes' ? 'chg' : 'log', reduceMotion: () => !animated });
+  const sc = scene.createScene({ document: doc, layout, width, log: o.log !== false, tab: o.tab === 'changes' ? 'chg' : 'log', reduceMotion: () => !animated });
   const L = logs || {};
+  if (state && state.pulses) for (const k in state.pulses) if (state.pulses[k] > 0) sc.flow(k, true);
   sc.apply(state, { log: (L.log || []).slice(-15).map((r) => r.slice(0, 3)), changes: (L.changes || []).slice(-15).map((r) => r.slice(0, 3)) });
   const svg = sc.svg, vb = svg.getAttribute('viewBox').split(' ').map(Number);
   svg.setAttribute('font-family', scene.FONT_FAMILY);
-  const bg = doc.createElementNS(scene.NS, 'rect');
-  ['x', 'y'].forEach((k) => bg.setAttribute(k, 0)); bg.setAttribute('width', vb[2]); bg.setAttribute('height', vb[3]); bg.setAttribute('fill', scene.C.bg);
-  svg.children.unshift(bg); bg.parentNode = svg;
-  const st = doc.createElementNS(scene.NS, 'style');
-  st.textContent = scene.CSS_STATIC + (animated ? scene.CSS_ANIM : '');
-  svg.appendChild(st);
+  const fill = bgFill(o.bg);
+  if (fill) {
+    const bg = doc.createElementNS(scene.NS, 'rect');
+    ['x', 'y'].forEach((k) => bg.setAttribute(k, 0)); bg.setAttribute('width', vb[2]); bg.setAttribute('height', vb[3]); bg.setAttribute('fill', fill);
+    svg.children.unshift(bg); bg.parentNode = svg;
+  }
+  if (!attr) {
+    const st = doc.createElementNS(scene.NS, 'style');
+    st.textContent = scene.CSS_STATIC + (animated ? scene.CSS_ANIM : '');
+    svg.appendChild(st);
+  }
   if (!animated) stillen(svg);
+  if (attr) attrAnim(svg, Math.min(1000, Math.max(0, Math.round(Number(o.phase)) || 0)));
   return svg.serialize();
 }
 
@@ -86,4 +126,4 @@ async function renderGraphPng(svg, o) {
   } finally { clearTimeout(timer); }
 }
 
-module.exports = { renderGraphSvg, renderGraphPng };
+module.exports = { renderGraphSvg, renderGraphPng, pickLayout };
