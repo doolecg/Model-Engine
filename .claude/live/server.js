@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const { spawn, spawnSync, execFile } = require('child_process');
 const { providers } = require('./providers.js');
 const { detectAccounts } = require('./accounts.js');
+const { MODES: AUTH_MODES, buildClaudeEnv, claudeAuthStatus } = require('./auth.js');
 const { aggregateUsage } = require('./usage.js');
 const updater = require('./updater.js');
 const remote = require('./remote.js');
@@ -26,6 +27,8 @@ const S = {
   mcpSeen: {}, ondemand: {}, active: {}, busy: false,
 };
 const clients = new Set();
+// Claude sign-in mode: 'subscription' (your Claude login) or 'apikey'. Read at the start of each run, so a change applies to the next run.
+let claudeAuth = 'subscription';
 // Remote access (Tailscale): settings, in-memory sessions, login rate limit, open remote streams.
 const RM = remote.restore(null), sessions = remote.createSessions(), limiter = remote.createLimiter(), globalLimiter = remote.createLimiter({ max: 30 }), remoteStreams = new Set();
 function dropRemoteSessions() { sessions.clear(); for (const r of remoteStreams) { try { r.end(); } catch {} } remoteStreams.clear(); }
@@ -227,7 +230,7 @@ function save() {
   saveTimer = setTimeout(() => {
     try {
       const out = [...projects.values()].map((p) => ({ ...pmeta(p), log: p.log, changes: p.changes.map((c, i, a) => (i < a.length - 10 ? c.slice(0, 3) : c)), threads: [p.planThread, p.engineThread].map((id) => { const t = threads.get(id); return { ...tmeta(t), running: false, sessionId: t.sessionId, sessions: t.sessions || {}, items: t.items.filter((i) => i.kind !== 'perm' || i.status !== 'pending').slice(-200) }; }) }));
-      fs.writeFileSync(STORE, JSON.stringify({ projects: out, usage: usageRows, updates: UPD.settings, remote: { enabled: RM.enabled, host: RM.host, salt: RM.salt, hash: RM.hash } }));
+      fs.writeFileSync(STORE, JSON.stringify({ projects: out, usage: usageRows, updates: UPD.settings, claudeAuth, remote: { enabled: RM.enabled, host: RM.host, salt: RM.salt, hash: RM.hash } }));
     } catch {}
   }, 400);
 }
@@ -252,6 +255,7 @@ function load() {
     if (!Array.isArray(data) && Array.isArray(data.usage)) usageRows = data.usage.slice(-USAGE_CAP);
     if (!Array.isArray(data)) Object.assign(UPD.settings, updSettings(data.updates) || {});
     if (!Array.isArray(data)) Object.assign(RM, remote.restore(data.remote));
+    if (!Array.isArray(data) && AUTH_MODES.includes(data.claudeAuth)) claudeAuth = data.claudeAuth;
     for (const p of Array.isArray(data) ? data : data.projects || []) {
       if (!fs.existsSync(p.folder)) continue;
       projects.set(p.id, { id: p.id, name: p.name, folder: p.folder, planThread: p.planThread, engineThread: p.engineThread, log: Array.isArray(p.log) ? p.log.slice(-40) : [], changes: Array.isArray(p.changes) ? p.changes.slice(-60) : [], t0: Date.now() });
@@ -424,7 +428,7 @@ async function runThread(t, text, atts, allow, label) {
       prompt: one(),
       options: {
         cwd: proj.folder, model: MODELS[t.model] || t.model, permissionMode: t.mode, allowDangerouslySkipPermissions: true,
-        settingSources: ['user', 'project', 'local'], includePartialMessages: true, abortController: ac,
+        settingSources: ['user', 'project', 'local'], includePartialMessages: true, abortController: ac, env: buildClaudeEnv(process.env, claudeAuth),
         agents: t.kind === 'plan' ? { recall: AGENTS.recall } : AGENTS, hooks: HOOKS, canUseTool: (n, i, o) => askPerm(t, n, i, o),
         systemPrompt: { type: 'preset', preset: 'claude_code', append: t.kind === 'plan' ? PLAN_RULES : ENGINE_RULES },
         ...(t.effort ? { effort: t.effort } : {}), ...(t.sessionId ? { resume: t.sessionId } : {}),
@@ -454,7 +458,7 @@ async function prefetch() {
     const { query } = await SDK();
     const ac = new AbortController();
     async function* never() { await new Promise(() => {}); }
-    const q = query({ prompt: never(), options: { cwd: ROOT, settingSources: ['user', 'project', 'local'], abortController: ac } });
+    const q = query({ prompt: never(), options: { cwd: ROOT, settingSources: ['user', 'project', 'local'], abortController: ac, env: buildClaudeEnv(process.env, claudeAuth) } });
     cmds = await q.supportedCommands();
     ac.abort();
     send('commands', { list: cmds });
@@ -580,7 +584,7 @@ const server = http.createServer((req, res) => {
       }
       return json(res, { error: 'sign in required' }, 401);
     }
-    if (u.startsWith('/remote/') || (req.method === 'POST' && ['/fs/pick', '/update/apply', '/update/rollback', '/update/settings'].includes(u))) return json(res, { error: 'only from the PC itself' }, 403);
+    if (u.startsWith('/remote/') || (req.method === 'POST' && ['/fs/pick', '/update/apply', '/update/rollback', '/update/settings', '/claude/auth'].includes(u))) return json(res, { error: 'only from the PC itself' }, 403);
   } else if (u.startsWith('/auth/')) { res.writeHead(404); return res.end(); }
   if (req.method === 'GET' && u === '/remote/status') {
     res.setHeader('cache-control', 'no-store');
@@ -589,6 +593,14 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && (u === '/'|| u === '/index.html')) {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     return res.end(fs.readFileSync(path.join(__dirname, 'index.html')));
+  }
+  if (req.method === 'GET' && u.startsWith('/fonts/')) {
+    const FONTS = path.join(__dirname, 'fonts'), name = u.slice(7);
+    let ok = false;
+    try { ok = /^[\w.-]+$/.test(name) && /\.woff2$|^OFL\.txt$/.test(name) && fs.readdirSync(FONTS).includes(name); } catch {}
+    if (!ok) { res.writeHead(404); return res.end(); }
+    res.writeHead(200, { 'content-type': name === 'OFL.txt' ? 'text/plain; charset=utf-8' : 'font/woff2', 'cache-control': 'public, max-age=31536000, immutable' });
+    return res.end(fs.readFileSync(path.join(FONTS, name)));
   }
   if (req.method === 'GET' && u === '/about') {
     let version = '0.0.0';
@@ -600,8 +612,16 @@ const server = http.createServer((req, res) => {
   if (req.method === 'GET' && u === '/usage') return json(res, aggregateUsage(usageRows));
   if (req.method === 'GET' && u === '/accounts') {
     res.setHeader('cache-control', 'no-store');
-    return json(res, { accounts: detectAccounts(), ...(IN_DOCKER ? { note: 'Logins on the host are not visible inside Docker. Use API keys in .env.' } : {}) });
+    return json(res, { accounts: detectAccounts(), ...(IN_DOCKER ? { note: 'Logins on the host are not visible inside Docker. Use CLAUDE_CODE_OAUTH_TOKEN or ANTHROPIC_API_KEY in .env.' } : {}) });
   }
+  if (req.method === 'GET' && u === '/claude/auth') {
+    res.setHeader('cache-control', 'no-store');
+    return json(res, claudeAuthStatus(claudeAuth));
+  }
+  if (req.method === 'POST' && u === '/claude/auth') return body(req, (b) => {
+    if (!b || !AUTH_MODES.includes(b.mode)) return json(res, { error: 'bad mode' }, 400);
+    claudeAuth = b.mode; save(); json(res, claudeAuthStatus(claudeAuth));
+  }, 4096);
   if (req.method === 'GET' && u === '/providers') {
     const onPath = (n) => { const r = spawnSync(process.platform === 'win32' ? 'where' : 'which', [n], { encoding: 'utf8', windowsHide: true }); return r.status === 0 && !!(r.stdout || '').trim(); };
     return json(res, PROVIDERS.map((name) => ({ name, available: name === 'claude' || (!!providers[name] && onPath(name)), models: name === 'claude' ? Object.keys(MODELS) : PROVIDER_MODELS[name] || [] })));

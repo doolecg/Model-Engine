@@ -76,10 +76,18 @@ docker compose up --build
 
 Then open http://127.0.0.1:4777. The container publishes the port on your own computer only.
 
-1. Put your API key in a `.env` file next to `docker-compose.yml`: `ANTHROPIC_API_KEY=...`. A Claude subscription login on the host does not carry into the container, so an API key is needed.
+1. Copy `.env.example` to `.env` next to `docker-compose.yml` and set either `CLAUDE_CODE_OAUTH_TOKEN` (your Claude subscription, see [Use your Claude subscription](#use-your-claude-subscription)) or `ANTHROPIC_API_KEY`. A Claude login on the host does not carry into the container. The agents in the container have shell access to `/workspace` and can read these values, so only use them on a machine you trust.
 2. Set `WORKSPACE` (in the same `.env` file or your shell) to the folder the agents may edit. They can only touch that folder and the container. The default is `./workspace`.
 3. The dashboard's project list lives in the Docker volume `engine-data`, mounted at `/data`.
 4. Stop it with `docker compose down`. Add `-v` to delete the volume as well.
+
+## Use your Claude subscription
+
+The dashboard chat can run on your Claude subscription instead of an API key. This is for personal use on your own machine, with your own login; Anthropic's current terms apply, so check them before relying on it.
+
+- Portable folder or terminal runs: nothing to set up. If you are signed in to `claude`, the chat uses that login.
+- Docker: run `claude setup-token` on your PC, then put the token in `.env` as `CLAUDE_CODE_OAUTH_TOKEN=...`. The agents in the container can read it, so only do this on a machine you trust.
+- Switch between the subscription and an API key in Settings, Accounts, Claude sign-in. It takes effect on the next run. In subscription mode an `ANTHROPIC_API_KEY` in the environment is ignored, so it cannot silently bill per token.
 
 ## Using Model Engine
 
@@ -142,7 +150,7 @@ The UI and run council members use the Playwright MCP to look at the running app
 
 - **Updates.** Pick a channel, check now, update now, roll back. Details are in [Portable install and updates](#portable-install-and-updates).
 - **Remote access (Tailscale).** Off by default. Setup and the safety rules are in [Remote access over Tailscale](#remote-access-over-tailscale).
-- **Accounts.** Shows which CLIs are installed and whether a login or API key exists. It only checks that the files or environment variables exist. It never reads them.
+- **Accounts.** Shows which CLIs are installed and whether a login, subscription token or API key exists, and lets you choose between your Claude subscription and an API key for the chat. It only checks that the files or environment variables exist. It never reads them.
 - **On-demand tools.** The switches described above.
 - **Reduce motion.** Turns off the animated wires. The page also follows your system setting.
 - **Default tab.** Choose Plan, Engine or Settings, or keep the last tab you used.
@@ -157,7 +165,7 @@ The UI and run council members use the Playwright MCP to look at the running app
 ### Troubleshooting
 
 - **Port 4777 is already in use.** An old server is still running. Stop it by its process ID (the server prints it when it starts), or start the new one on another port with `MODEL_ENGINE_PORT`. The hook uses the same variable.
-- **The chat does not work in Docker.** Put `ANTHROPIC_API_KEY=...` in the `.env` file next to `docker-compose.yml`. A subscription login on the host does not reach the container.
+- **The chat does not work in Docker.** Put `CLAUDE_CODE_OAUTH_TOKEN=...` (from `claude setup-token`) or `ANTHROPIC_API_KEY=...` in the `.env` file next to `docker-compose.yml`. A login on the host does not reach the container.
 - **The diagram stays quiet while I work in a terminal.** Hooks only report when `MODEL_ENGINE_LIVE=1` is set, or when you use the dashboard chat, which sets it for you.
 - **There is no Windows folder button in Docker.** That is expected. Use the built-in browser, which shows the workspace folder.
 - **The updater refuses.** It does not run in Docker (rebuild the image) or in a git checkout (use `git pull`). It also waits while a run is active.
@@ -193,7 +201,7 @@ The live view at http://127.0.0.1:4777:
 - **Per project.** Each project tab keeps its own session log and diffs.
 - **Plan tab.** A chat with the Brain (Opus) that interviews you and writes `PLAN.md` in the project folder. It may only write `PLAN.md` and files under `docs/`. A button then sends that plan to the build chat to work through step by step.
 - **Status? button.** Asks the running agent for a short status without stopping its work.
-- **Accounts.** The Settings page shows which CLIs are installed and whether a login or API key exists. It only checks that files or environment variables exist; it never reads or sends them.
+- **Accounts.** The Settings page shows which CLIs are installed and whether a login, subscription token or API key exists. It only checks that files or environment variables exist; it never reads or sends them. Your Claude sign-in choice (subscription or API key) is saved in `projects.json`; the login or key itself is not.
 - **Settings page.** The disclaimers, what the dashboard runs, privacy, and two options: reduce motion and the default tab.
 
 The skills in `.claude/skills` (`engine-brain`, `engine-builder`, `engine-recall`, `engine-code-review`, `engine-ui-review`, `engine-run-check`) hold the checklist each agent follows.
@@ -270,6 +278,8 @@ Stop the server by its process ID, which it prints on start.
 ## Licence
 
 MIT. See [LICENSE](LICENSE).
+
+Font: JetBrains Mono (SIL Open Font License 1.1), bundled in .claude/live/fonts.
 
 ## Disclaimer
 

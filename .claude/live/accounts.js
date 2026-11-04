@@ -23,16 +23,17 @@ function detectAccounts(env = process.env, platform = process.platform, home = o
   const dataHome = has(env, 'XDG_DATA_HOME') ? env.XDG_DATA_HOME : path.join(home, '.local', 'share');
 
   const out = [];
-  const add = (id, label, cliFound, login, key, noLoginAuth) => {
-    const auth = login ? 'signed-in' : key ? 'api-key' : noLoginAuth;
-    out.push({ id, label, cli: cliFound ? 'found' : 'missing', auth, via: login ? 'login file' : key ? 'environment' : 'none' });
+  const add = (id, label, cliFound, login, key, noLoginAuth, token) => {
+    const auth = login || token ? 'signed-in' : key ? 'api-key' : noLoginAuth;
+    out.push({ id, label, cli: cliFound ? 'found' : 'missing', auth, via: login ? 'login file' : token ? 'environment token' : key ? 'environment' : 'none' });
   };
 
   const claudeCli = cli('claude');
   add('claude', 'Claude Code', claudeCli,
     anyFile(['.claude', '.credentials.json']),
-    anyEnv('ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'),
-    platform === 'darwin' && claudeCli ? 'unknown' : 'not-found');
+    anyEnv('ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'),
+    platform === 'darwin' && claudeCli ? 'unknown' : 'not-found',
+    anyEnv('CLAUDE_CODE_OAUTH_TOKEN'));
 
   add('codex', 'Codex', cli('codex'),
     anyAbs(path.join(has(env, 'CODEX_HOME') ? env.CODEX_HOME : path.join(home, '.codex'), 'auth.json')),

@@ -27,6 +27,14 @@ test('api-key via environment', () => {
   assert.strictEqual(a.opencode.auth, 'api-key'); assert.strictEqual(a.opencode.cli, 'missing');
 });
 
+test('claude: OAuth token is signed-in via environment token, API key stays api-key', () => {
+  const t = setup(); t.exe('claude');
+  assert.deepStrictEqual(t.get({ ...t.env, CLAUDE_CODE_OAUTH_TOKEN: 'oat-fake-789' }).claude, { id: 'claude', label: 'Claude Code', cli: 'found', auth: 'signed-in', via: 'environment token' });
+  const k = t.get({ ...t.env, ANTHROPIC_API_KEY: 'sk-fake-value-123' }).claude;
+  assert.strictEqual(k.auth, 'api-key'); assert.strictEqual(k.via, 'environment');
+  assert.strictEqual(t.get({ ...t.env, ANTHROPIC_AUTH_TOKEN: 'x-fake' }).claude.auth, 'api-key');
+});
+
 test('not-found and missing CLI', () => {
   const t = setup(); t.exe('gemini');
   const a = t.get({ ...t.env, OPENAI_API_KEY: '   ' });
@@ -55,7 +63,7 @@ test('opencode and codex login files, CODEX_HOME honoured', () => {
 
 test('output never contains paths, file contents or env values', () => {
   const t = setup(); t.exe('claude'); t.file('.claude', '.credentials.json'); t.file('.gemini', 'oauth_creds.json');
-  const env = { ...t.env, OPENAI_API_KEY: 'sk-fake-value-123', GEMINI_API_KEY: 'gm-fake-value-456', USERPROFILE: t.home };
+  const env = { ...t.env, OPENAI_API_KEY: 'sk-fake-value-123', GEMINI_API_KEY: 'gm-fake-value-456', CLAUDE_CODE_OAUTH_TOKEN: 'oat-fake-789', USERPROFILE: t.home };
   const s = JSON.stringify(detectAccounts(env, plat, t.home));
-  for (const bad of [t.root, t.home, t.bin, 'sk-fake-value-123', 'gm-fake-value-456', 'SECRET-CONTENT', os.tmpdir()]) assert.ok(!s.includes(bad), bad);
+  for (const bad of [t.root, t.home, t.bin, 'sk-fake-value-123', 'gm-fake-value-456', 'oat-fake-789', 'SECRET-CONTENT', os.tmpdir()]) assert.ok(!s.includes(bad), bad);
 });

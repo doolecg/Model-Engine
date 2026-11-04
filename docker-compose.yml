@@ -8,6 +8,8 @@ services:
       # the server and the healthcheck read the port from here
       - MODEL_ENGINE_PORT=${MODEL_ENGINE_PORT:-4777}
       # passed through from your shell or .env; no default, never written here
+      # Claude subscription token (from `claude setup-token`) or an API key; the agents in /workspace can read it
+      - CLAUDE_CODE_OAUTH_TOKEN
       - ANTHROPIC_API_KEY
     volumes:
       # project list survives rebuilds
