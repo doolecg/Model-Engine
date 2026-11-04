@@ -11,6 +11,7 @@ button,select,textarea{font:inherit;color:inherit}
 button{background:none;border:1px solid var(--line);color:var(--dim);border-radius:6px;padding:2px 10px;cursor:pointer}
 button:hover:not(:disabled){color:var(--tx);border-color:var(--dim)}
 button:disabled{opacity:.4;cursor:default}
+#prov{flex:none;width:auto;max-width:140px}
 select{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:2px 4px;color:var(--tx)}
 header{display:flex;align-items:center;gap:16px;padding:8px 20px 0;color:var(--dim)}
 header .brand{color:var(--tx);letter-spacing:.14em;font-weight:700}
@@ -26,14 +27,18 @@ header .brand{color:var(--tx);letter-spacing:.14em;font-weight:700}
 #itabs button.on{color:var(--tx);border-color:var(--line);background:var(--bg)}
 #folder{flex:1;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #push{border-color:var(--grn);color:var(--grn)}
-body[data-tab=engine] #push,body[data-tab=settings] #push{display:none}
+body[data-tab=engine] #push,body[data-tab=settings] #push,body[data-tab=usage] #push{display:none}
 #work{display:flex;min-height:0;min-width:0}
 main{flex:1;min-width:0;min-height:0;padding:12px 6px 16px 20px;display:grid}
 #planView,#engineView{display:none;min-height:0;min-width:0}
 body[data-tab=plan] #planView{display:grid}
 body[data-tab=engine] #engineView{display:grid}
 body[data-tab=settings] #setView{display:block}
-body[data-tab=settings] #dock{display:none}
+body[data-tab=settings] #dock,body[data-tab=usage] #dock{display:none}
+body[data-tab=usage] #useView{display:block}
+body.np #mode,body.np #effort,body.np #bots,body.np #rsb,body.np #subs,body.np #rz2{display:none}
+#useView{display:none;overflow:auto;min-height:0;padding-right:14px}
+.ut{border-collapse:collapse;width:100%}.ut th,.ut td{text-align:right;padding:2px 8px;border-bottom:1px solid var(--gl)}.ut th:first-child,.ut td:first-child{text-align:left}.ut th{color:var(--dim);font-weight:400}
 #setView{display:none;overflow:auto;min-height:0;padding-right:14px}
 .sc{max-width:760px;margin:0 0 12px;padding:12px 14px;border:1px solid var(--line);border-radius:10px;background:var(--card)}
 .sc h3{margin:0 0 6px;font-size:1em;letter-spacing:.08em;color:var(--grn)}
@@ -130,8 +135,7 @@ svg text{font-family:ui-monospace,Consolas,"Courier New",monospace}
 #pl div{padding:2px 8px;cursor:pointer;border-radius:4px;color:var(--cy)}#pl div:hover{background:#1f1f27}
 #pfoot{display:flex;gap:6px;align-items:center;flex-wrap:wrap}#pn{background:var(--bg);border:1px solid var(--line);border-radius:6px;color:var(--tx);font:inherit;padding:2px 8px;width:11em}
 #pe{color:var(--red);flex:1}#pok{border-color:var(--grn);color:var(--grn)}
-.act{animation:glowbox 1.1s ease-in-out infinite}
-@keyframes glowbox{0%,100%{filter:drop-shadow(0 0 0 transparent)}50%{filter:drop-shadow(0 0 7px var(--c))}}
+.act{stroke-dasharray:6 5;stroke-width:1.6;animation:march .9s linear infinite}
 #subs{width:var(--sw,380px);flex:none;background:var(--card);border:1px solid var(--line);border-radius:10px;display:flex;flex-direction:column;min-height:0;min-width:0}
 #sh{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid var(--gl)}#sh b{color:var(--grn);letter-spacing:.08em;flex:1}
 #sb{flex:1;overflow:auto;padding:8px 14px}
@@ -145,6 +149,7 @@ svg text{font-family:ui-monospace,Consolas,"Courier New",monospace}
 @media (max-width:900px){#xbody{flex-direction:column}#xl{width:auto;height:35%;border-bottom:1px solid var(--gl)}#rzx{display:none}}
 @media (max-width:700px){
  body{padding-right:46px}
+ #itabs button{min-height:32px}
  header{padding:8px 10px 0;gap:8px}.brand{display:none}
  #sub{padding:6px 10px;flex-wrap:wrap}#folder{display:none}
  main{padding:8px;overflow:auto}
@@ -153,12 +158,22 @@ svg text{font-family:ui-monospace,Consolas,"Courier New",monospace}
  #dock{position:fixed;top:0;bottom:0;left:0;right:46px;z-index:25;flex-direction:column;padding:8px;gap:8px;background:var(--bg)}
  #chat,#subs{width:auto!important;flex:1;min-height:0}.rz{display:none}
 }
+#dv{position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;padding:24px}
+#dv.on{display:flex}
+#dvp{background:var(--card);border:1px solid var(--line);border-radius:10px;width:min(960px,100%);max-height:100%;display:flex;flex-direction:column;overflow:hidden}
+#dvh{display:flex;align-items:center;gap:10px;padding:10px 14px;border-bottom:1px solid var(--gl);font-size:13px}
+#dvt{color:var(--grn);font-weight:700}#dvf{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--tx);font-family:ui-monospace,Consolas,monospace}
+#dvx{background:none;border:1px solid var(--line);color:var(--tx);border-radius:6px;padding:3px 10px;cursor:pointer;font:inherit}
+#dvx:hover,#dvx:focus-visible{border-color:var(--pur);outline:none}
+#dvb{margin:0;padding:10px 0;overflow:auto;font:12px/1.5 ui-monospace,Consolas,monospace;color:var(--tx);white-space:pre}
+#dvb div{padding:0 14px;min-width:100%;width:max-content}
+#dvb .a{background:rgba(74,222,128,.12)}#dvb .d{background:rgba(244,81,75,.12)}#dvb .c{color:var(--dim)}#dvb .h{color:var(--pur);text-align:center}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}
 body.reduce-motion *{animation:none!important}
 </style></head><body data-tab="plan">
 <header><span class="brand">MODEL ENGINE</span><nav id="ptabs"></nav><span id="link">○ offline</span></header>
 <div id="sub">
- <nav id="itabs"><button data-t="plan" class="on">Plan</button><button data-t="engine">Engine</button><button data-t="settings">Settings</button></nav>
+ <nav id="itabs"><button data-t="plan" class="on">Plan</button><button data-t="engine">Engine</button><button data-t="usage">Usage</button><button data-t="settings">Settings</button></nav>
  <span id="folder"></span>
  <button id="push" disabled title="Ask the plan chat to write PLAN.md first">Push to Engine ▸</button>
 </div>
@@ -174,21 +189,30 @@ body.reduce-motion *{animation:none!important}
   <div class="sc warn"><h3>DISCLAIMER</h3><p>Provided "as is", without warranty, under the MIT licence. To the extent permitted by law, the authors are not liable for any loss or damage from using it, including lost data, lost work or damage to files or projects. Nothing here limits liability that cannot be limited by law, such as for death or personal injury caused by negligence. Back up your work. You use it at your own risk.</p><p>Not affiliated with or endorsed by Anthropic. AI output can be wrong; check it before relying on it.</p></div>
   <div class="sc"><h3>WHAT IT RUNS</h3><p>The dashboard chat starts Claude Code (via the Claude Agent SDK, using your own Claude account) in the project folder you pick.</p><p>Agents it starts can read, create, edit and delete files and run shell commands in that folder.</p><p>Hooks in .claude/settings.json forward events to this page on 127.0.0.1.</p></div>
   <div class="sc"><h3>PRIVACY</h3><p>The page and server only listen on 127.0.0.1. There are no accounts and no analytics.</p><p>Chats and projects are stored in .claude/live/projects.json on this computer.</p><p>The only thing sent off this computer is your prompts and the files Claude reads. Claude Code itself sends them to Anthropic.</p></div>
+  <div class="sc"><h3>ON-DEMAND TOOLS</h3><p>Off by default. Only the Brain can switch these on, only when a plan needs them. They switch off again when the turn ends.</p><p>Not available inside Docker unless the bridge is reachable from the container.</p><div id="odList"></div></div>
   <div class="sc"><h3>SETTINGS</h3>
    <label><input type="checkbox" id="sRm"> Reduce motion (turns off the wire animations)</label>
    <label>Default tab <select id="sDef"><option value="">last used</option><option value="plan">Plan</option><option value="engine">Engine</option><option value="settings">Settings</option></select></label>
    <label><button id="sRisk">Show the permission warning again</button></label></div>
+ </section>
+ <section id="useView">
+  <div class="sc"><h3>TOTALS</h3><p id="uTot">Loading...</p><button id="uRef">refresh</button></div>
+  <div class="sc"><h3>BY PROVIDER</h3><div id="uProv"></div></div>
+  <div class="sc"><h3>BY DAY</h3><div id="uDay"></div></div>
+  <div class="sc"><h3>BY MODEL</h3><div id="uMod"></div></div>
+  <!-- step 5: local history section (GET /usage/local) goes here -->
  </section>
  <section id="engineView"><div style="min-height:0;min-width:0"><svg id="wide" class="g"></svg><svg id="tall" class="g"></svg></div></section>
 </main>
 <div id="dock"><div class="rz" id="rz1" title="drag to resize"></div>
 <section id="chat">
  <div id="ch"><b id="ctitle">CHAT</b><span id="busy"></span><span class="sp"></span>
-  <button id="bots" title="subagents">bots 0</button><select id="mode" title="permission mode"><option value="default">ask</option><option value="acceptEdits">edits</option><option value="plan">plan</option><option value="auto">auto</option><option value="dontAsk">no-ask</option><option value="bypassPermissions">bypass</option></select>
-  <select id="model" title="model"><option value="sonnet">sonnet</option><option value="opus">opus</option><option value="haiku">haiku</option></select>
-  <select id="effort" title="effort"><option>low</option><option>medium</option><option>high</option><option>xhigh</option><option>max</option></select>
+  <button id="status" title="Ask for a short status without stopping the work">Status?</button><button id="bots" title="subagents">bots 0</button><select id="prov" title="provider" aria-label="provider"><option value="claude">claude</option><option value="codex">codex</option><option value="opencode">opencode</option><option value="antigravity">antigravity</option></select><select id="mode" title="permission mode" aria-label="permission mode"><option value="default">ask</option><option value="acceptEdits">edits</option><option value="plan">plan</option><option value="auto">auto</option><option value="dontAsk">no-ask</option><option value="bypassPermissions">bypass</option></select>
+  <select id="model" title="model" aria-label="model"><option value="sonnet">sonnet</option><option value="opus">opus</option><option value="haiku">haiku</option></select>
+  <select id="effort" title="effort" aria-label="effort"><option>low</option><option>medium</option><option>high</option><option>xhigh</option><option>max</option></select>
   <button id="clear" title="new session">new</button><button id="cc" title="collapse to the side bar">›</button></div>
  <div id="banner">bypass on</div>
+ <div id="dv"><div id="dvp" role="dialog" aria-modal="true" aria-labelledby="dvf"><div id="dvh"><span id="dvt"></span><span id="dvf"></span><button id="dvx" type="button" aria-label="Close diff">Close</button></div><pre id="dvb"></pre></div></div>
  <div id="out"></div><div id="toast"></div><div id="att"></div><div id="slash"></div>
  <form id="in"><button type="button" id="attach" title="attach files or images">+</button><textarea id="txt" rows="1" placeholder="message, / for commands, paste images" autocomplete="off"></textarea><button type="button" id="stop" style="display:none">stop</button><button type="submit" id="send">send</button></form>
  <input type="file" id="file" multiple hidden>
@@ -254,6 +278,16 @@ function opusBits(xc,yc,xv,yv,xl,yl){const calls=T(xc,yc,'calls 0',C.d,11),v=T(x
   led.setAttribute('opacity',s.opus==='awake'?1:.25);led.setAttribute('class',s.opus==='awake'?'led':'')})}
 function recallBits(xa,ya,xb,yb){const cg=T(xa,ya,'0 explores · 0 greps',C.d,11),hs=T(xb,yb,'0 recalls · 0 saved',C.d,11);
  bind(s=>{cg.textContent=s.recall.cg+' explores · '+s.recall.grep+' greps';hs.textContent=s.recall.hs+' recalls · '+s.recall.saved+' saved'})}
+let dvPrev=null;
+function showDiff(e){const b=document.getElementById('dvb');b.textContent='';
+ document.getElementById('dvt').textContent=e[1];document.getElementById('dvf').textContent=e[2];
+ (e[3]||'No diff recorded for this change.').split('\n').forEach(l=>{const d=document.createElement('div');
+  d.className=!e[3]?'c':l==='@@'?'h':l.startsWith('+ ')?'a':l.startsWith('- ')?'d':'c';d.textContent=l||' ';b.appendChild(d)});
+ dvPrev=document.activeElement;document.getElementById('dv').classList.add('on');document.getElementById('dvx').focus()}
+function hideDiff(){const v=document.getElementById('dv');if(!v.classList.contains('on'))return;v.classList.remove('on');if(dvPrev&&dvPrev.focus)dvPrev.focus()}
+document.addEventListener('keydown',e=>{if(e.key==='Escape')hideDiff()});
+document.getElementById('dvx').addEventListener('click',hideDiff);
+document.getElementById('dv').addEventListener('mousedown',e=>{if(e.target.id==='dv')hideDiff()});
 function logPanel(x,y,w,h,rows,fs,gap){const cd=card(x,y,w,h);const r=[];let n=rows,tb='log';
  const ty=y+10,th=26,tw=fs*11,tabs={};
  el('path',{d:'M'+(x+1)+','+(ty+th)+'H'+(x+w-1),stroke:C.gl});
@@ -264,9 +298,13 @@ function logPanel(x,y,w,h,rows,fs,gap){const cd=card(x,y,w,h);const r=[];let n=r
   P=pv;tabs[k]={bg,ln,t};g.addEventListener('click',()=>{tb=k;paint();render()})});
  const paint=()=>{for(const k in tabs){const a=k===tb,o=tabs[k];o.bg.setAttribute('fill',a?C.bg:'#1d1d22');o.bg.setAttribute('stroke',a?C.l:C.gl);o.ln.setAttribute('opacity',a?1:0);o.t.setAttribute('fill',a?C.t:C.d)}};paint();
  const tc=tabs.chg.t;
- for(let i=0;i<rows;i++){const yy=y+46+i*gap;r.push([T(x+16,yy,'',C.d,fs),T(x+16+fs*6,yy,'',C.t,fs),T(x+16+fs*15,yy,'',C.t,fs)])}
+ let cur=[];const hit=[];
+ for(let i=0;i<rows;i++){const yy=y+46+i*gap;const hr=el('rect',{x:x+6,y:yy-fs-2,width:w-12,height:gap,rx:4,fill:'#fff','fill-opacity':0,'pointer-events':'none'});
+  hr.addEventListener('mouseenter',()=>hr.setAttribute('fill-opacity',.07));hr.addEventListener('mouseleave',()=>hr.setAttribute('fill-opacity',0));
+  hr.addEventListener('click',()=>{const e=cur[i];if(e)showDiff(e)});hit.push(hr);
+  const row=[T(x+16,yy,'',C.d,fs),T(x+16+fs*6,yy,'',C.t,fs),T(x+16+fs*15,yy,'',C.t,fs)];row.forEach(t=>t.setAttribute('pointer-events','none'));r.push(row)}
  const col={opus:C.p,hindsight:C.a,codegraph:C.c,council:C.t,sonnet:C.t,recall:C.c,you:C.g};
- bind(s=>{const L=(tb==='log'?s.log:s.changes||[]).slice(-n);const m=Math.floor((w-fs*15-32)/(fs*.6));tc.textContent='CHANGES'+(s.changes&&s.changes.length?' '+s.changes.length:'');r.forEach((row,i)=>{const e=L[i];row[0].textContent=e?e[0]:'';row[1].textContent=e?e[1]:'';row[1].setAttribute('fill',e?(tb==='chg'?C.g:col[e[1]]||C.d):C.d);const v=e?String(e[2]):'';row[2].textContent=tb==='chg'&&v.length>m?'…'+v.slice(-(m-1)):v.slice(0,m)})});
+ bind(s=>{const pl=(s.logs&&s.logs[curP])||{},lg=pl.log||[],ch=pl.changes||[];const L=(tb==='log'?lg:ch).slice(-n);const m=Math.floor((w-fs*15-32)/(fs*.6));tc.textContent='CHANGES'+(ch.length?' '+ch.length:'');cur=tb==='chg'?L:[];r.forEach((row,i)=>{const e=L[i];const hr=hit[i];hr.setAttribute('pointer-events',tb==='chg'&&e?'all':'none');hr.style.cursor='pointer';row[0].textContent=e?e[0]:'';row[1].textContent=e?e[1]:'';row[1].setAttribute('fill',e?(tb==='chg'?C.g:col[e[1]]||C.d):C.d);const v=e?String(e[2]):'';row[2].textContent=tb==='chg'&&v.length>m?'…'+v.slice(-(m-1)):v.slice(0,m)})});
  return hh=>{cd.setAttribute('height',hh);n=Math.max(1,Math.min(rows,Math.floor((hh-56)/gap)+1));render()}}
 
 function orchBits(xs,ys,bx,by,bw,xd,yd,sz,xu,yu){const sub=T(xu,yu,'',C.d,11),st=T(xs,ys,'idle',C.g,12),b=bar(bx,by,bw),dn=T(xd,yd,'',C.t,sz,'end',1);
@@ -339,7 +377,7 @@ const md=s=>esc(s).replace(/```(\w*)\n([\s\S]*?)(```|$)/g,(m,l,c)=>'<pre>'+c+'</
 const lsGet=k=>{try{return localStorage.getItem(k)}catch{return null}};
 const lsSet=(k,v)=>{try{localStorage.setItem(k,v)}catch{}};
 const post=(u,b)=>fetch(u,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b||{})});
-let PROJ=[],THR={},ITEMS={},CMDS=[],curP=lsGet('me.p'),tab=['plan','engine','settings'].includes(lsGet('me.deftab'))?lsGet('me.deftab'):['engine','settings'].includes(lsGet('me.tab'))?lsGet('me.tab'):'plan',att=[],dir='',hasPlan=false,prevRun={};
+let PROJ=[],THR={},ITEMS={},CMDS=[],curP=lsGet('me.p'),tab=['plan','engine','settings'].includes(lsGet('me.deftab'))?lsGet('me.deftab'):['engine','usage','settings'].includes(lsGet('me.tab'))?lsGet('me.tab'):'plan',att=[],dir='',hasPlan=false,prevRun={};
 const proj=()=>PROJ.find(p=>p.id===curP);
 const thr=()=>{const p=proj();return p&&THR[tab==='plan'?p.planThread:p.engineThread]};
 const MODES={default:'ask',acceptEdits:'edits',plan:'plan',auto:'auto',dontAsk:'no-ask',bypassPermissions:'bypass'};
@@ -351,15 +389,20 @@ function drawTabs(){const n=$('ptabs');n.innerHTML='';
   d.onclick=e=>{if(e.target.classList.contains('x')){if(confirm('Close project tab "'+p.name+'"? Its chats are removed; files stay.'))post('/project/close',{id:p.id});return}selectProject(p.id)};n.appendChild(d)});
  const a=document.createElement('button');a.textContent='+';a.title='add project folder';a.onclick=openPicker;n.appendChild(a)}
 let pendingSelect=null;
-function selectProject(id){curP=id;lsSet('me.p',id);dir='';drawTabs();setTab(tab)}
-function setTab(t){tab=t;lsSet('me.tab',t);document.body.dataset.tab=t;if(t==='settings')drawAbout();
- document.querySelectorAll('#itabs button').forEach(b=>b.classList.toggle('on',b.dataset.t===t));
+function selectProject(id){curP=id;lsSet('me.p',id);dir='';drawTabs();setTab(tab);render()}
+function setTab(t){tab=t;lsSet('me.tab',t);document.body.dataset.tab=t;if(t==='settings')drawAbout();if(t==='usage')loadUsage();
+ document.querySelectorAll('#itabs button').forEach(b=>{b.classList.toggle('on',b.dataset.t===t);b.setAttribute('aria-selected',b.dataset.t===t)});
  const p=proj();$('folder').textContent=p?p.folder:'';
  
  loadChat();drawBots();if(t==='plan'){loadDir();preview(hasPlan?'PLAN.md':null)}checkPlan()}
 document.querySelectorAll('#itabs button').forEach(b=>b.onclick=()=>setTab(b.dataset.t));
 
 // ----- settings
+let OD=[];try{OD=JSON.parse(lsGet('me.od')||'[]')}catch{}
+function drawOd(){const l=$('odList');if(!l.dataset.n)return;l.querySelectorAll('[data-od]').forEach(d=>{const on=S&&S.ondemand&&S.ondemand[d.dataset.od];d.textContent=on?'● on':'○ off';d.style.color=on?'var(--grn)':'inherit'})}
+fetch('/ondemand').then(r=>r.json()).then(a=>{const l=$('odList');l.dataset.n=a.length;l.innerHTML=a.map(o=>`<label><input type="checkbox" data-k="${o.name}"${OD.includes(o.name)?' checked':''}> Let the Brain turn this on: ${o.label} <span data-od="${o.name}"></span></label>`).join('');
+ l.onchange=e=>{const k=e.target.dataset.k;OD=OD.filter(x=>x!==k);if(e.target.checked)OD.push(k);lsSet('me.od',JSON.stringify(OD))};drawOd()}).catch(()=>{});
+BIND.push(drawOd);
 function drawAbout(){fetch('/about').then(r=>r.json()).then(a=>{$('abt').textContent='Version '+a.version+'. Port '+a.port+'. Folder '+a.root+'. Node '+a.node+'.'}).catch(()=>{$('abt').textContent='Could not read /about.'})}
 function applyMotion(){document.body.classList.toggle('reduce-motion',lsGet('me.rm')==='1')}
 $('sRm').checked=lsGet('me.rm')==='1';applyMotion();
@@ -378,7 +421,7 @@ function riskOk(mode){if(!RISKY[mode]||lsGet('me.riskoff')==='1')return Promise.
 const out=$('out');
 function tsum(i){i=i||{};return String(i.command||i.file_path||i.pattern||i.path||(i.subagent_type?i.subagent_type+' · '+(i.description||''):'')||i.query||i.skill||i.url||'').slice(0,160)}
 function fill(d,i){d.className='i '+i.kind+(i.status?' s-'+i.status:'');
- if(i.kind==='user')d.innerHTML='<div class="bub">'+esc(i.text)+'</div>'+(i.atts&&i.atts.length?'<div class="chips">'+i.atts.map(a=>'<span class="chip">'+esc(a.name)+'</span>').join('')+'</div>':'');
+ if(i.kind==='user')d.innerHTML='<div class="bub">'+(i.label?'<b>'+esc(i.label)+'</b> ':'')+esc(i.text)+'</div>'+(i.atts&&i.atts.length?'<div class="chips">'+i.atts.map(a=>'<span class="chip">'+esc(a.name)+'</span>').join('')+'</div>':'');
  else if(i.kind==='text')d.innerHTML=md(i.text)+(i.live?'<span class="cur">▍</span>':'');
  else if(i.kind==='thinking')d.innerHTML='<details><summary>thinking…</summary><div>'+esc(i.text)+'</div></details>';
  else if(i.kind==='tool')d.innerHTML='<details><summary>'+(i.status==='running'?'● ':i.status==='err'?'✕ ':'✓ ')+'<b>'+esc(i.name)+'</b> '+esc(tsum(i.input))+'</summary><pre>'+esc(JSON.stringify(i.input,null,1).slice(0,1200))+(i.result?'\n— result —\n'+esc(i.result):'')+'</pre></details>';
@@ -390,7 +433,7 @@ function near(){return out.scrollHeight-out.scrollTop-out.clientHeight<80}
 function loadChat(){const t=thr();out.innerHTML='';if(!t)return;
  (ITEMS[t.id]||[]).forEach(i=>out.appendChild(el1(i)));out.scrollTop=out.scrollHeight;
  const p=proj();$('ctitle').textContent=(tab==='plan'?'PLAN':'ENGINE')+(p?' · '+p.name.toUpperCase():'');
- $('mode').value=t.mode;$('model').value=t.model;$('effort').value=t.effort;
+ drawCtl(t);$('effort').value=t.effort;
  $('banner').style.display=t.mode==='bypassPermissions'?'block':'none';
  $('busy').textContent=t.running?'working…':'';$('stop').style.display=t.running?'':'none';$('rch').classList.toggle('run',!!t.running)}
 out.addEventListener('click',e=>{const b=e.target.closest('button[data-a]');if(!b)return;const id=b.closest('.i').dataset.id;const a=b.dataset.a;post('/chat/perm',{id,allow:a!=='deny',always:a==='always'})});
@@ -422,11 +465,23 @@ $('txt').addEventListener('keydown',e=>{
   if(e.key==='Tab'||(e.key==='Enter'&&!e.shiftKey)){e.preventDefault();pick(mi);return}
   if(e.key==='Escape'){$('slash').style.display='none';menu=[];return}}
  if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();sendMsg()}});
+let PROVS=[];
+function drawProv(){const sel=$('prov');[...sel.options].forEach(o=>{const p=PROVS.find(x=>x.name===o.value);const ag=o.value==='antigravity',off=ag||(o.value!=='claude'&&!(p&&p.available));o.disabled=off;o.textContent=o.value+(ag?' (not available yet)':off?' (not installed)':'')})}
+function drawCtl(t){const pv=t.provider||'claude',p=PROVS.find(x=>x.name===pv),m=$('model');
+ let L=p?p.models.slice():pv==='claude'?['sonnet','opus','haiku']:[];if(!L.includes(t.model))L.push(t.model);
+ if([...m.options].map(o=>o.value).join()!==L.join()){m.innerHTML='';L.forEach(v=>{const o=document.createElement('option');o.value=o.textContent=v;m.appendChild(o)})}
+ $('prov').value=pv;m.value=t.model;$('mode').value=t.mode;document.body.classList.toggle('np',pv!=='claude')}
+fetch('/providers').then(r=>r.json()).then(L=>{PROVS=L;drawProv();const t=thr();if(t)drawCtl(t)}).catch(drawProv);
+$('prov').onchange=async e=>{const t=thr();if(!t){toast('open a chat first');e.target.value='claude';return}const r=await post('/thread/set',{id:t.id,provider:e.target.value});
+ if(!r.ok){let m='provider change failed';try{m=(await r.json()).error||m}catch{}toast(m);drawCtl(t)}}
 async function setThr(patch){const t=thr();if(!t)return;Object.assign(t,patch);await post('/thread/set',{id:t.id,...patch});loadChat()}
 $('mode').onchange=async e=>{const v=e.target.value;if(!await riskOk(v)){e.target.value=thr().mode;return}if(v==='bypassPermissions'&&!confirm('Bypass skips every permission check. Claude can run any command and edit any file without asking. Continue?')){e.target.value=thr().mode;return}setThr({mode:v})};
 $('model').onchange=e=>setThr({model:e.target.value});
 $('effort').onchange=e=>setThr({effort:e.target.value});
 $('clear').onclick=()=>{const t=thr();if(t)post('/thread/clear',{id:t.id}).then(r=>{if(r.status===409)toast('stop the run first')})};
+$('status').onclick=async()=>{const t=thr();if(!t)return;
+ const r=await post('/chat',{thread:t.id,text:'Status check, keep working: reply in at most 4 short lines: what you are doing now, what is done, what is blocked or needs me, what is next. No tools unless you need one to answer.',atts:[],steer:true});
+ if(r.status===409)toast('Cannot steer this run');else if(!r.ok)toast('send failed ('+r.status+')')};
 $('stop').onclick=()=>{const t=thr();if(t)post('/chat/stop',{thread:t.id})};
 async function sendMsg(){const t=thr(),text=$('txt').value.trim();if(!t||(!text&&!att.length))return;
  const m=text.match(/^\/(clear|model|mode|effort)\b\s*(.*)$/);
@@ -436,7 +491,7 @@ async function sendMsg(){const t=thr(),text=$('txt').value.trim();if(!t||(!text&
   else if(c==='effort'&&['low','medium','high','xhigh','max'].includes(a))setThr({effort:a});
   else if(c==='mode'){const k=Object.keys(MODES).find(k=>MODES[k]===a||k===a);if(k&&(k!=='bypassPermissions'||confirm('Bypass skips every permission check. Continue?'))&&await riskOk(k))setThr({mode:k});else toast('modes: '+Object.values(MODES).join(', '))}
   else toast('usage: /'+c+' <value>');return}
- const r=await post('/chat',{thread:t.id,text,atts:att});
+ const r=await post('/chat',{thread:t.id,text,atts:att,allow:OD});
  if(r.status===409){toast('Another run is in progress. Wait or stop it first.');return}
  if(!r.ok){toast('send failed ('+r.status+')');return}
  $('txt').value='';$('txt').style.height='auto';att=[];drawAtt();drawMenu()}
@@ -486,7 +541,7 @@ $('pok').onclick=async()=>{if(!fsCur)return;const r=await post('/project/new',{f
 let SUBS={},subSel=null;
 function subList(){const t=thr();return t?(SUBS[t.id]||[]).slice().sort((a,b)=>b.started-a.started):[]}
 function drawBots(){const n=subList().filter(s=>s.status==='running').length;
- BOTS.forEach(b=>{b.t.textContent=n?String(n):'';b.h.setAttribute('stroke',n?C.g:C.d);b.h.style.setProperty('--c',C.g);b.h.classList.toggle('act',n>0)});
+ BOTS.forEach(b=>{b.t.textContent=n?String(n):'';b.h.setAttribute('stroke',n?C.g:C.d)});
  const bt=$('bots');bt.textContent='bots '+n;{const rb=$('rbadge');rb.textContent=n;rb.style.display=n?'block':'none'}bt.style.color=n?'var(--grn)':'';if(!document.body.classList.contains('subs-off'))drawSubs()}
 function ago(ms){const s=Math.round(ms/1000);return s<60?s+'s':Math.floor(s/60)+'m '+(s%60)+'s'}
 function lastLine(s){const i=s.items[s.items.length-1];return i?(i.k==='tool'?(i.status==='running'?'● ':'✓ ')+i.name+' '+(i.sum||''):i.text.replace(/\s+/g,' ')):(s.desc||'starting…')}
@@ -533,10 +588,10 @@ function connect(){const es=new EventSource('/stream'),link=$('link');
   else if(o.type==='projects'){PROJ=o.list;
    if(pendingSelect&&PROJ.some(p=>p.id===pendingSelect)){curP=pendingSelect;pendingSelect=null}
    if(!PROJ.some(p=>p.id===curP))curP=PROJ[0]&&PROJ[0].id;
-   drawTabs();if(curP){const p=proj();$('folder').textContent=p.folder;lsSet('me.p',curP)}}
+   drawTabs();if(curP){const p=proj();$('folder').textContent=p.folder;lsSet('me.p',curP)}render()}
   else if(o.type==='threads'){const was=thr();THR={};o.list.forEach(t=>{THR[t.id]=t});drawTabs();
    const t=thr();if(t){if(!was||was.id!==t.id||!prevRun.init){prevRun.init=1;setTab(tab)}else{
-     $('busy').textContent=t.running?'working…':'';$('stop').style.display=t.running?'':'none';$('rch').classList.toggle('run',!!t.running);if($('mode').value!==t.mode)$('mode').value=t.mode;
+     $('busy').textContent=t.running?'working…':'';$('stop').style.display=t.running?'':'none';$('rch').classList.toggle('run',!!t.running);drawCtl(t);
      if(prevRun[t.id]&&!t.running){loadDir();checkPlan();if(prevPath)preview(prevPath)}}
     prevRun[t.id]=t.running}}
   else if(o.type==='items'){ITEMS[o.thread]=o.items;const t=thr();if(t&&t.id===o.thread)loadChat()}
@@ -545,5 +600,15 @@ function connect(){const es=new EventSource('/stream'),link=$('link');
    else if(o.op==='upd'){const i=L.find(x=>x.id===o.id);if(i){Object.assign(i,o.patch);if(show){const d=out.querySelector('[data-id="'+o.id+'"]');if(d)fill(d,i)}}}
    else if(o.op==='delta'){const i=L.find(x=>x.id===o.id);if(i){i.text+=o.text;if(show){dirty.add(o.id);near2=stick;if(!rafId)rafId=requestAnimationFrame(()=>{rafId=0;const t2=thr();(t2&&ITEMS[t2.id]||[]).forEach(x=>{if(dirty.has(x.id)){const d=out.querySelector('[data-id="'+x.id+'"]');if(d)fill(d,x)}});dirty.clear();if(near2)out.scrollTop=out.scrollHeight})}}}
    if(show&&stick)out.scrollTop=out.scrollHeight}}}
+// ----- usage
+const fmtN=n=>Number(n||0).toLocaleString(),fmtC=n=>'$'+Number(n||0).toFixed(4);
+function utable(rows,cols){return rows.length?'<table class="ut"><tr>'+cols.map(c=>'<th>'+c[0]+'</th>').join('')+'</tr>'+rows.map(r=>'<tr>'+cols.map(c=>'<td>'+esc(c[1](r))+'</td>').join('')+'</tr>').join('')+'</table>':'<p style="color:var(--dim)">no usage recorded yet</p>'}
+async function loadUsage(){let u;try{const r=await fetch('/usage');if(!r.ok)throw 0;u=await r.json()}catch{$('uTot').textContent='Could not read /usage.';['uProv','uDay','uMod'].forEach(i=>$(i).innerHTML='<p style="color:var(--red)">usage unavailable</p>');return}
+ const T=u.totals||{},nums=[['runs',r=>fmtN(r.runs)],['input',r=>fmtN(r.in)],['output',r=>fmtN(r.out)],['cost',r=>fmtC(r.cost)]];
+ $('uTot').textContent=fmtN(T.runs)+' runs · '+fmtN(T.in)+' input · '+fmtN(T.out)+' output · '+fmtC(T.cost);
+ $('uProv').innerHTML=utable(u.byProvider||[],[['provider',r=>r.provider],...nums]);
+ $('uDay').innerHTML=utable(u.byDay||[],[['day',r=>r.day],...nums]);
+ $('uMod').innerHTML=utable(u.byModel||[],[['model',r=>r.provider+'/'+r.model],...nums])}
+$('uRef').onclick=loadUsage;
 connect();
 </script></body></html>

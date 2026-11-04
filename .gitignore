@@ -3,6 +3,7 @@ node_modules/
 .playwright-mcp/
 .env
 *.log
+/workspace/
 
 # trial todo-app files at repo root
 /PLAN.md

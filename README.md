@@ -51,6 +51,19 @@ $env:MODEL_ENGINE_LIVE = "1"; claude
 
 Without that variable the hooks do nothing, so other tools that open this folder stay out of the dashboard. To use the agents in your own project, copy the `.claude` folder into it and merge `CLAUDE.md` with your own.
 
+## Run it in Docker
+
+```bash
+docker compose up --build
+```
+
+Then open http://127.0.0.1:4777. The container publishes the port on your own computer only.
+
+1. Put your API key in a `.env` file next to `docker-compose.yml`: `ANTHROPIC_API_KEY=...`. A Claude subscription login on the host does not carry into the container, so an API key is needed.
+2. Set `WORKSPACE` (in the same `.env` file or your shell) to the folder the agents may edit. They can only touch that folder and the container. The default is `./workspace`.
+3. The dashboard's project list lives in the Docker volume `engine-data`, mounted at `/data`.
+4. Stop it with `docker compose down`. Add `-v` to delete the volume as well.
+
 ## Why Model Engine
 
 A long agent session is hard to follow. You see a stream of tool calls and have to guess which model did what and whether anyone checked it.
@@ -67,17 +80,25 @@ The roles, as set in `CLAUDE.md` and `.claude/agents`:
 - **Builder (Sonnet).** The only agent that edits files. It takes one short task card at a time and runs its own check.
 - **Council (Haiku).** Three members: UI, code and run. UI and code read the diff. Run executes the tests and starts the app. Each replies pass, note or fail.
 
+### On-demand tools
+
+Frugal Blender is an optional MCP server (named `blender`) that you install yourself. It is off by default and only the Brain (reviewer) can switch it on, only when a plan needs it, and it switches off again when the turn ends. You must also tick it under Settings > On-demand tools. Only the builder can use it.
+
 The live view at http://127.0.0.1:4777:
 
 - **Diagram.** An animated picture of the agents above, lit up as hooks report events.
 - **Session log.** A running list of what each agent did.
-- **Changes tab.** The files being edited, as they are edited.
+- **Changes tab.** The files being edited, as they are edited. Click a change to see its diff.
+- **Per project.** Each project tab keeps its own session log and diffs.
 - **Plan tab.** A chat with the Brain (Opus) that interviews you and writes `PLAN.md` in the project folder. It may only write `PLAN.md` and files under `docs/`. A button then sends that plan to the build chat to work through step by step.
+- **Status? button.** Asks the running agent for a short status without stopping its work.
 - **Settings page.** The disclaimers, what the dashboard runs, privacy, and two options: reduce motion and the default tab.
 
 The skills in `.claude/skills` (`engine-brain`, `engine-builder`, `engine-recall`, `engine-code-review`, `engine-ui-review`, `engine-run-check`) hold the checklist each agent follows.
 
 Hindsight and codegraph are optional MCP servers that you install and configure yourself. They do not ship with this repo. The recall, builder, reviewer and code council agents list their tools, and without these servers those lookups simply have nothing to call.
+
+The UI and run council members also use the Playwright MCP, an optional MCP server you install yourself (like Hindsight and codegraph). Without it they fall back to reading the diff and running tests.
 
 ## Screenshots
 
@@ -101,6 +122,7 @@ Read this before the first start.
 - **Agents that change files and run commands.** The builder can read, create, edit and delete files in the project folder and run shell commands. The run council member runs commands too. The dashboard chat has permission modes, including ones that stop asking before edits or commands. It warns you before you switch to them. Use a project under version control and back it up.
 - **Hooks.** `.claude/settings.json` runs `node .claude/live/hook.js` on session start, prompt submit, subagent start and stop, every tool use and stop. The hook sends the event to the local server. It exits at once unless `MODEL_ENGINE_LIVE=1` is set, and it fails quietly if the server is down.
 - **A local server.** `.claude/live/server.js` listens on `127.0.0.1` only (default port 4777), so other computers on your network cannot reach it.
+- **Docker (optional).** In Docker, agents are limited to the mounted workspace folder and the container.
 - **Microsoft Edge (Windows only).** With `--open`, the server opens the dashboard in an Edge app window.
 
 Settings you can change with environment variables:

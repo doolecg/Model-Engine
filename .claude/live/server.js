@@ -5,10 +5,13 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
-const { spawn } = require('child_process');
+const { spawn, spawnSync } = require('child_process');
+const { providers } = require('./providers.js');
+const { aggregateUsage } = require('./usage.js');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const PORT = Number(process.env.MODEL_ENGINE_PORT) || 4777;
+const HOST = process.env.MODEL_ENGINE_HOST || '127.0.0.1';
 const STORE = process.env.MODEL_ENGINE_STORE || path.join(__dirname, 'projects.json');
 const MODELS = { sonnet: 'claude-sonnet-5-5', opus: 'claude-opus-5-5', haiku: 'claude-haiku-5-5' };
 const rid = () => crypto.randomUUID().slice(0, 8);
@@ -17,7 +20,7 @@ const S = {
   calls: 0, verdict: null, opus: 'idle',
   recall: { cg: 0, hs: 0, grep: 0, saved: 0, run: false },
   orch: 'idle', builder: 'idle', orchModel: 'sonnet', council: { ui: 'idle', code: 'idle', run: 'idle' },
-  mcpSeen: {}, active: {}, log: [], t0: Date.now(), busy: false,
+  mcpSeen: {}, ondemand: {}, active: {}, busy: false,
 };
 const clients = new Set();
 
@@ -25,11 +28,50 @@ function send(type, data) {
   const m = `data: ${JSON.stringify({ type, ...data })}\n\n`;
   for (const c of clients) c.write(m);
 }
+let CP = null;
 function stamp() {
-  const s = (Date.now() - S.t0) / 1000;
+  const s = (Date.now() - (CP ? CP.t0 : Date.now())) / 1000;
   return String(Math.floor(s / 60)).padStart(2, '0') + ':' + (s % 60).toFixed(1).padStart(4, '0');
 }
-function log(unit, msg) { S.log.push([stamp(), unit, msg]); if (S.log.length > 40) S.log.shift(); }
+function editDiff(a, b) {
+  const o = a == null ? [] : String(a).split('\n'), n = String(b == null ? '' : b).split('\n');
+  let p = 0;
+  while (p < o.length && p < n.length && o[p] === n[p]) p++;
+  let s = 0;
+  while (s < o.length - p && s < n.length - p && o[o.length - 1 - s] === n[n.length - 1 - s]) s++;
+  const c0 = Math.max(0, p - 3), c1 = Math.min(s, 3), out = [];
+  for (let i = c0; i < p; i++) out.push('  ' + o[i]);
+  for (let i = p; i < o.length - s; i++) out.push('- ' + o[i]);
+  for (let i = p; i < n.length - s; i++) out.push('+ ' + n[i]);
+  for (let i = o.length - s; i < o.length - s + c1; i++) out.push('  ' + o[i]);
+  return out;
+}
+function buildDiff(t, ti) {
+  let parts = [];
+  if (t === 'Edit') parts = [editDiff(ti.old_string, ti.new_string)];
+  else if (t === 'MultiEdit') parts = (Array.isArray(ti.edits) ? ti.edits : []).map(x => editDiff(x && x.old_string, x && x.new_string));
+  else if (t === 'Write') parts = [editDiff(null, ti.content)];
+  else if (t === 'NotebookEdit') parts = [editDiff(null, ti.new_source)];
+  let lines = [];
+  parts.forEach((p, i) => { if (i) lines.push('@@'); lines = lines.concat(p); });
+  if (!lines.length) return '';
+  let cut = lines.length > 200;
+  if (cut) lines = lines.slice(0, 200);
+  let text = lines.join('\n');
+  if (text.length > 20480) { text = text.slice(0, 20480); cut = true; }
+  return cut ? text + '\n… truncated' : text;
+}
+function log(unit, msg) { if (!CP) return; CP.log.push([stamp(), unit, msg]); if (CP.log.length > 40) CP.log.shift(); }
+const normP = (f) => path.resolve(String(f)).replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+function projectFor(e) {
+  const t = !e.cwd && running && threads.get(running);
+  if (t) return projects.get(t.project) || null;
+  if (!e.cwd) return null;
+  const c = normP(e.cwd);
+  let best = null;
+  for (const p of projects.values()) { const f = normP(p.folder); if ((c === f || c.startsWith(f + '/')) && (!best || f.length > normP(best.folder).length)) best = p; }
+  return best;
+}
 function pulse(wire) { send('pulse', { wire }); }
 
 function loadoutNow() {
@@ -54,7 +96,20 @@ function loadout() {
   const mc = new Set(LO.mcps); Object.keys(S.mcpSeen).forEach((k) => mc.add(k));
   return { skills: LO.skills, mcps: [...mc].sort() };
 }
-function view() { return { ...S, loadout: loadout(), repo: ROOT }; }
+// on-demand tools: off by default; only the Brain (reviewer) may switch one on, and only if the user allowed it in Settings
+const ONDEMAND = { blender: { label: 'Frugal Blender', tools: ['discover', 'inspect', 'execute', 'capture'].map((n) => 'mcp__blender__' + n) } };
+function odOff(q) { for (const k of Object.keys(ONDEMAND)) { if (q) try { q.toggleMcpServer(k, false).catch(() => {}); } catch {} } S.ondemand = {}; }
+function odSwitch(text) {
+  const t = threads.get(running);
+  if (!t || !t.q) return;
+  for (const m of String(text || '').toLowerCase().matchAll(/^\s*(enable|disable):\s*([\w-]+)/gm)) {
+    const on = m[1] === 'enable', k = m[2];
+    if (!ONDEMAND[k] || !(t.allow || []).includes(k) || !!S.ondemand[k] === on) continue;
+    t.q.toggleMcpServer(k, on).catch(() => {});
+    S.ondemand[k] = on; log('opus', (on ? 'enabled ' : 'disabled ') + ONDEMAND[k].label);
+  }
+}
+function view() { const logs = {}; for (const p of projects.values()) logs[p.id] = { log: p.log, changes: p.changes }; return { ...S, logs, loadout: loadout(), repo: ROOT }; }
 let pushT = null;
 function push() { if (pushT) return; pushT = setTimeout(() => { pushT = null; send('state', { state: view() }); }, 80); }
 
@@ -71,10 +126,11 @@ function verdict(t) {
   return m ? m[1] : null;
 }
 
-function apply(e) {
+function apply(e, fromSdk) {
+  CP = fromSdk ? projectFor({}) : projectFor(e);
   const n = e.hook_event_name, ag = who(e.agent_type);
   if (e.hook_event_name === 'SubagentStart' || e.hook_event_name === 'SubagentStop') subHook(e.hook_event_name, e);
-  if (n === 'SessionStart') { if (e.source === 'startup') { S.t0 = Date.now(); S.log = []; S.changes = []; } log('session', e.source || 'start'); }
+  if (n === 'SessionStart') { if (e.source === 'startup') { if (CP) { CP.t0 = Date.now(); CP.log = []; CP.changes = []; } } log('session', e.source || 'start'); }
   else if (n === 'UserPromptSubmit') {
     S.busy = true; S.orch = 'thinking'; S.builder = 'idle'; S.verdict = null; S.active = {};
     S.council = { ui: 'idle', code: 'idle', run: 'idle' };
@@ -86,7 +142,7 @@ function apply(e) {
     else { S.council[ag] = 'running'; pulse('out:' + ag); log('council', ag + ' started'); }
   } else if (n === 'SubagentStop' && ag) {
     const v = verdict(e.last_assistant_message);
-    if (ag === 'opus') { S.opus = 'idle'; S.calls++; S.verdict = v === 'reject' ? 'reject' : v === 'approve' ? 'approve' : null; log('opus', v || 'done'); pulse('verdict'); }
+    if (ag === 'opus') { S.opus = 'idle'; S.calls++; S.verdict = v === 'reject' ? 'reject' : v === 'approve' ? 'approve' : null; log('opus', v || 'done'); pulse('verdict'); odSwitch(e.last_assistant_message); }
     else if (ag === 'builder') { S.builder = 'done'; pulse('gate'); log('builder', 'done'); }
     else if (ag === 'recall') { S.recall.run = false; pulse('ctx'); log('recall', 'done'); }
     else { S.council[ag] = v === 'note' ? 'note' : v === 'fail' ? 'fail' : v === 'pass' ? 'pass' : 'done'; pulse('f:' + ag); log('council', ag + ' ' + (v || 'done')); }
@@ -107,46 +163,56 @@ function apply(e) {
     } else if (t === 'Grep') S.recall.grep++;
     else if (/^(Write|Edit|MultiEdit|NotebookEdit)$/.test(t) && e.tool_input && (e.tool_input.file_path || e.tool_input.notebook_path)) {
       const fp = e.tool_input.file_path || e.tool_input.notebook_path, rel = path.relative(e.cwd || ROOT, fp);
-      (S.changes = S.changes || []).push([stamp(), t, rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel : fp]);
-      if (S.changes.length > 60) S.changes.shift();
+      if (CP) {
+        CP.changes.push([stamp(), t, rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel : fp, buildDiff(t, e.tool_input)]);
+        if (CP.changes.length > 60) CP.changes.shift();
+        for (let i = 0; i < CP.changes.length - 15; i++) if (CP.changes[i].length > 3) CP.changes[i].length = 3;
+      }
     }
     else if (t === 'Skill') { pulse('load'); log('skill', (e.tool_input && e.tool_input.skill) || ''); }
     if (!ag && !m && t !== 'Agent' && t !== 'Task') S.orch = 'writing';
-  } else if (n === 'Stop') { S.busy = false; S.active = {}; S.orch = 'done?'; log('orchestrator', 'finished'); }
+  } else if (n === 'Stop') { const rt = threads.get(running); odOff(rt && rt.q); S.busy = false; S.active = {}; S.orch = 'done?'; log('orchestrator', 'finished'); }
   push();
 }
 
 // ---------------- agents and rules (passed through the SDK, so any project folder gets them) ----------------
 const MEM = ['mcp__codegraph__codegraph_explore', 'mcp__hindsight__hindsight_search_knowledge_pages', 'mcp__hindsight__hindsight_read_knowledge_page'];
-const ONE_LINE = 'Never edit. Reply with exactly one line: `pass`, `note: <issue>` or `fail: <reason>`.';
+const PW = ['navigate', 'snapshot', 'take_screenshot', 'click', 'type', 'resize', 'wait_for', 'console_messages', 'network_requests', 'evaluate', 'close'].map(n => 'mcp__playwright__browser_' + n);
+const PW_RULES = ' Playwright rules: only open pages the project serves (http://127.0.0.1, http://localhost, file:); never external sites or logins; headless, one browser at a time; save screenshots only to the OS temp folder or a docs/ path the task card names; always call browser_close when done; never edit project files.';
+const ONE_LINE ='Never edit. Reply with exactly one line: `pass`, `note: <issue>` or `fail: <reason>`.';
+const BLENDER_RULES = 'Blender: use the mcp__blender__* tools (Frugal Blender) only if the Brain enabled them this turn, and never run blender.exe yourself. If the bridge is down, say: in Blender, View3D > Sidebar > Frugal MCP, tick Allow python and save, then Start bridge.';
 const AGENTS = {
   recall: { description: 'Memory and code lookup. Read-only. Use for every repo search, before planning or building.', model: MODELS.haiku, maxTurns: 12, tools: ['Read', 'Glob', 'Grep', ...MEM],
     prompt: 'Answer with paths and line numbers, one line each. Never edit. Hindsight first for decisions (name the page), then codegraph_explore for code, then Grep or Read only for what it does not index. If a tool is down, say so in one line and carry on.' },
-  'council-ui': { description: 'Council 1 of 3. Reviews the UI side of a change. Replies pass, note or fail.', model: MODELS.haiku, maxTurns: 10, tools: ['Read', 'Glob', 'Grep'],
-    prompt: 'Review only the UI: layout, spacing, empty and error states, contrast, keyboard basics, phone, 1080p and 32-inch sizes. ' + ONE_LINE },
+  'council-ui': { description: 'Council 1 of 3. Reviews the UI side of a change. Replies pass, note or fail.', model: MODELS.haiku, maxTurns: 10, tools: ['Read', 'Glob', 'Grep', ...PW],
+    prompt: 'Review only the UI: layout, spacing, empty and error states, contrast, keyboard basics, phone, 1080p and 32-inch sizes. If the Playwright tools exist, open the page at 1440x900 and 390x844 and check layout, states and console errors.' + PW_RULES + ' ' + ONE_LINE },
   'council-code': { description: 'Council 2 of 3. Reviews the code side of a change. Replies pass, note or fail.', model: MODELS.haiku, maxTurns: 10, tools: ['Read', 'Glob', 'Grep', 'mcp__codegraph__codegraph_explore'],
     prompt: 'Review only the code: bugs, edge cases, error handling, style, and callers of changed symbols (codegraph_explore). ' + ONE_LINE },
-  'council-run': { description: 'Council 3 of 3. Runs the tests and starts the app once. Replies pass, note or fail.', model: MODELS.haiku, maxTurns: 12, tools: ['Bash', 'Read', 'Glob', 'Grep'],
-    prompt: 'Run the test suite once and start the app or build once if there is one. Filter output with head, tail or grep. One build or test run at a time. Never edit. Reply with exactly one line: `pass: <N> tests`, `note: <issue>` or `fail: <first failing error, one line>`.' },
-  builder: { description: 'Builds one step of a project to a task card. The only agent that edits project files. Runs its own check before reporting.', model: MODELS.sonnet, maxTurns: 40, tools: ['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep', 'mcp__codegraph__codegraph_explore'],
-    prompt: 'You build exactly the step you are given, in the files you are given, nothing more. Match the surrounding code style. Run the check for the step (build, test or run) before reporting. Never fake success: no stubs, no skipped or weakened tests, no hardcoded results. If blocked, reply BLOCKED with the reason instead of improvising. Reply with DONE, what you changed (paths) and what you ran.' },
+  'council-run': { description: 'Council 3 of 3. Runs the tests and starts the app once. Replies pass, note or fail.', model: MODELS.haiku, maxTurns: 12, tools: ['Bash', 'Read', 'Glob', 'Grep', ...PW],
+    prompt: 'Run the test suite once and start the app or build once if there is one. Filter output with head, tail or grep. One build or test run at a time. After tests, start the app only if the task card says how, load it with Playwright, check the console for errors and that the main view renders, then stop what you started by PID.' + PW_RULES + ' Never edit. Reply with exactly one line: `pass: <N> tests`, `note: <issue>` or `fail: <first failing error, one line>`.' },
+  builder: { description: 'Builds one step of a project to a task card. The only agent that edits project files. Runs its own check before reporting.', model: MODELS.sonnet, maxTurns: 40, tools: ['Read', 'Write', 'Edit', 'MultiEdit', 'Bash', 'Glob', 'Grep', 'mcp__codegraph__codegraph_explore', ...ONDEMAND.blender.tools],
+    prompt: 'You build exactly the step you are given, in the files you are given, nothing more. Match the surrounding code style. Run the check for the step (build, test or run) before reporting. Never fake success: no stubs, no skipped or weakened tests, no hardcoded results. If blocked, reply BLOCKED with the reason instead of improvising. Reply with DONE, what you changed (paths) and what you ran. ' + BLENDER_RULES },
   reviewer: { description: 'Opus gate. Reads the plan or the final diff plus council findings, answers approve or reject, commits the handoff to memory after an approve.', model: MODELS.opus, maxTurns: 6, tools: ['Read', 'mcp__hindsight__hindsight_search_knowledge_pages', 'mcp__hindsight__hindsight_ingest_document'],
-    prompt: 'You get a plan, or a final diff with the council findings. Reject if it contradicts a recorded Hindsight decision. Reply with exactly one line: `approve` or `reject: <reason>`. Never write code. After an approve of a final diff only, ingest one short Hindsight document titled "Handoff: <project> <date>" (done, next, file paths, decisions); after the same error twice, ingest a "Lesson: <topic>" document.' },
+    prompt: 'You get a plan, or a final diff with the council findings. Reject if it contradicts a recorded Hindsight decision. Reply with exactly one line: `approve` or `reject: <reason>`. Never write code. If the plan needs an on-demand tool (Blender work), add a line `enable: blender` with a one-line reason after your approve or reject; when a step is finished and the tool is no longer needed add `disable: blender`; never enable a tool the plan does not need. After an approve of a final diff only, ingest one short Hindsight document titled "Handoff: <project> <date>" (done, next, file paths, decisions); after the same error twice, ingest a "Lesson: <topic>" document.' },
 };
 const skillBody = (n) => { try { return '\n\n' + fs.readFileSync(path.join(ROOT, '.claude', 'skills', n, 'SKILL.md'), 'utf8').replace(/^---[\s\S]*?---\s*/, '').trim(); } catch { return ''; } };
 for (const [a, k] of Object.entries({ recall: 'engine-recall', 'council-ui': 'engine-ui-review', 'council-code': 'engine-code-review', 'council-run': 'engine-run-check', builder: 'engine-builder', reviewer: 'engine-brain' })) AGENTS[a].prompt += skillBody(k);
-const ENGINE_RULES = `You are the orchestrator: you talk to the user and coordinate. You do not edit project files yourself. For any real project work, delegate one step at a time to the builder agent with a short task card (task, files, done check). Every repo search goes to the recall agent. Every test run goes to council-run; before "done" also call council-ui and council-code on the diff. Ask the reviewer (the Brain, Opus) before a plan locks, after the same error twice, and before saying done, passing the plan or the final diff plus council findings; on reject, send the fix back to the builder and ask again. Chat, questions and planning talk need no agents. Max 3 subagents at once, one build or test run at a time.`;
-const PLAN_RULES = `You are the Brain, planning a project with the user. Use the recall agent to look things up. Interview the user, then write PLAN.md in the project folder with these sections: Goal; References (links, files, examples, with why each matters); Deliverables (what must be made); Done looks like (checkable, per deliverable); Build order (numbered steps, each with its own done check). You may write only PLAN.md and files under docs/. Do not write code.`;
+const ENGINE_RULES = `You are the orchestrator: you talk to the user and coordinate. You do not edit project files yourself. For any real project work, delegate one step at a time to the builder agent with a short task card (task, files, done check). Every repo search goes to the recall agent. Every test run goes to council-run; before "done" also call council-ui and council-code on the diff. Ask the reviewer (the Brain, Opus) before a plan locks, after the same error twice, and before saying done, passing the plan or the final diff plus council findings; on reject, send the fix back to the builder and ask again. Chat, questions and planning talk need no agents. Max 3 subagents at once, one build or test run at a time. On-demand tools (mcp__blender__*, Frugal Blender) are off unless the reviewer enabled them this turn; never use them otherwise. For Blender work use only the Frugal Blender tools, never blender.exe. If the bridge is down tell the user: View3D > Sidebar > Frugal MCP, tick Allow python and save, Start bridge.`;
+const PLAN_RULES = `You are the Brain, planning a project with the user. Use the recall agent to look things up. Interview the user, then write PLAN.md in the project folder with these sections: Goal; References (links, files, examples, with why each matters); Deliverables (what must be made); Done looks like (checkable, per deliverable); Build order (numbered steps, each with its own done check). You may write only PLAN.md and files under docs/. Do not write code. You only plan. Never start building, never offer to build, and never ask the user whether to send the plan to build. Do not call or suggest the builder or council. Never use mcp__blender__* tools; for Blender work use only the Frugal Blender tools later, never blender.exe. When PLAN.md is written or updated, reply with one short line: that the plan is saved and the user can press "Push to Engine" when ready, then stop.`;
 const HOOKS = {};
 for (const ev of ['SessionStart', 'UserPromptSubmit', 'SubagentStart', 'SubagentStop', 'PreToolUse', 'PostToolUse', 'Stop']) {
-  HOOKS[ev] = [{ hooks: [async (input) => { try { apply(input); } catch {} return {}; }] }];
+  HOOKS[ev] = [{ hooks: [async (input) => { try { apply(input, true); } catch {} return {}; }] }];
 }
 
 // ---------------- projects and chat threads (Agent SDK) ----------------
 const projects = new Map(), threads = new Map(), pending = new Map();
 let running = null, cmds = [], sdk = null, prefetching = false;
 const SDK = async () => sdk || (sdk = await import('@anthropic-ai/claude-agent-sdk'));
-const tmeta = (t) => ({ id: t.id, project: t.project, kind: t.kind, mode: t.mode, model: t.model, effort: t.effort, running: t.running });
+const PROVIDERS = ['claude', 'codex', 'opencode', 'antigravity'];
+const PROVIDER_MODELS = { codex: ['default', 'gpt-5-codex', 'gpt-5'], opencode: ['default', 'anthropic/claude-sonnet-4-5', 'openai/gpt-5'] };
+const USAGE_CAP = 5000;
+let usageRows = [];
+const tmeta = (t) => ({ id: t.id, project: t.project, kind: t.kind, mode: t.mode, model: t.model, effort: t.effort, provider: t.provider || 'claude', running: t.running });
 const pmeta = (p) => ({ id: p.id, name: p.name, folder: p.folder, planThread: p.planThread, engineThread: p.engineThread });
 const sendProjects = () => { send('projects', { list: [...projects.values()].map(pmeta) }); send('threads', { list: [...threads.values()].map(tmeta) }); };
 let saveTimer = null;
@@ -154,27 +220,34 @@ function save() {
   clearTimeout(saveTimer);
   saveTimer = setTimeout(() => {
     try {
-      const out = [...projects.values()].map((p) => ({ ...pmeta(p), threads: [p.planThread, p.engineThread].map((id) => { const t = threads.get(id); return { ...tmeta(t), running: false, sessionId: t.sessionId, items: t.items.filter((i) => i.kind !== 'perm' || i.status !== 'pending').slice(-200) }; }) }));
-      fs.writeFileSync(STORE, JSON.stringify(out));
+      const out = [...projects.values()].map((p) => ({ ...pmeta(p), log: p.log, changes: p.changes.map((c, i, a) => (i < a.length - 10 ? c.slice(0, 3) : c)), threads: [p.planThread, p.engineThread].map((id) => { const t = threads.get(id); return { ...tmeta(t), running: false, sessionId: t.sessionId, sessions: t.sessions || {}, items: t.items.filter((i) => i.kind !== 'perm' || i.status !== 'pending').slice(-200) }; }) }));
+      fs.writeFileSync(STORE, JSON.stringify({ projects: out, usage: usageRows }));
     } catch {}
   }, 400);
 }
 function mkThread(pid, kind) {
   const plan = kind === 'plan';
-  const t = { id: rid(), project: pid, kind, sessionId: null, mode: 'default', model: plan ? 'opus' : 'sonnet', effort: 'medium', items: [], running: false };
+  const t = { id: rid(), project: pid, kind, sessionId: null, mode: 'default', model: plan ? 'opus' : 'sonnet', effort: 'medium', provider: 'claude', sessions: {}, items: [], running: false };
   threads.set(t.id, t); return t;
 }
+function recordUsage(t, provider, model, u) {
+  usageRows.push({ ts: Date.now(), run: t.runId, project: t.project, thread: t.id, provider, model: model || 'unknown', in: u.in || 0, out: u.out || 0, cacheR: u.cacheR || 0, cacheW: u.cacheW || 0, cost: Number.isFinite(u.cost) ? u.cost : 0 });
+  if (usageRows.length > USAGE_CAP) usageRows = usageRows.slice(-USAGE_CAP);
+  save();
+}
 function newProject(folder, name) {
-  const p = { id: rid(), name: name || path.basename(folder), folder };
+  const p = { id: rid(), name: name || path.basename(folder), folder, log: [], changes: [], t0: Date.now() };
   p.planThread = mkThread(p.id, 'plan').id; p.engineThread = mkThread(p.id, 'engine').id;
   projects.set(p.id, p); sendProjects(); save(); return p;
 }
 function load() {
   try {
-    for (const p of JSON.parse(fs.readFileSync(STORE, 'utf8'))) {
+    const data = JSON.parse(fs.readFileSync(STORE, 'utf8'));
+    if (!Array.isArray(data) && Array.isArray(data.usage)) usageRows = data.usage.slice(-USAGE_CAP);
+    for (const p of Array.isArray(data) ? data : data.projects || []) {
       if (!fs.existsSync(p.folder)) continue;
-      projects.set(p.id, { id: p.id, name: p.name, folder: p.folder, planThread: p.planThread, engineThread: p.engineThread });
-      for (const t of p.threads) threads.set(t.id, { ...t, running: false, items: (t.items || []).map((i) => (i.live ? { ...i, live: false } : i)) });
+      projects.set(p.id, { id: p.id, name: p.name, folder: p.folder, planThread: p.planThread, engineThread: p.engineThread, log: Array.isArray(p.log) ? p.log.slice(-40) : [], changes: Array.isArray(p.changes) ? p.changes.slice(-60) : [], t0: Date.now() });
+      for (const t of p.threads) threads.set(t.id, { ...t, provider: t.provider || 'claude', sessions: t.sessions || {}, running: false, items: (t.items || []).map((i) => (i.live ? { ...i, live: false } : i)) });
     }
   } catch {}
   if (!projects.size) newProject(ROOT, 'Model Engine');
@@ -296,17 +369,39 @@ function handle(t, m) {
     }
   } else if (m.type === 'result') {
     add(t, { kind: 'meta', text: `${m.subtype || 'done'} · ${((m.duration_ms || 0) / 1000).toFixed(1)}s · $${(m.total_cost_usd || 0).toFixed(3)}` });
+    const mu = Object.entries(m.modelUsage || {});
+    if (mu.length) for (const [name, u] of mu) recordUsage(t, 'claude', name, { in: u.inputTokens, out: u.outputTokens, cacheR: u.cacheReadInputTokens, cacheW: u.cacheCreationInputTokens, cost: u.costUSD });
+    else if (m.usage) recordUsage(t, 'claude', MODELS[t.model] || t.model, { in: m.usage.input_tokens, out: m.usage.output_tokens, cacheR: m.usage.cache_read_input_tokens, cacheW: m.usage.cache_creation_input_tokens, cost: m.total_cost_usd });
     if (m.is_error && m.result) add(t, { kind: 'err', text: String(m.result) });
   }
 }
 
-async function runThread(t, text, atts) {
+async function runCliThread(t, proj, text, ac) {
+  const prov = t.provider, p = providers[prov];
+  if (!p) { add(t, { kind: 'err', text: `${prov} is not available yet.` }); return; }
+  const model = t.model && t.model !== 'default' && (PROVIDER_MODELS[prov] || []).includes(t.model) ? t.model : undefined;
+  const r = await p.run({
+    cwd: proj.folder, text, model, sessionId: t.sessions[prov], signal: ac.signal,
+    onEvent: (e) => {
+      if (e.kind === 'text') add(t, { kind: 'text', text: e.text });
+      else if (e.kind === 'tool') add(t, { kind: 'tool', name: e.name, input: e.input, status: e.ok ? 'ok' : 'err', result: String(e.output || '').slice(0, 800) });
+      else if (e.kind === 'error') add(t, { kind: 'err', text: e.message });
+    },
+  });
+  if (r.sessionId) { t.sessions[prov] = r.sessionId; save(); }
+  const u = r.usage || {};
+  add(t, { kind: 'meta', text: `${prov} done` });
+  recordUsage(t, prov, model || 'default', u);
+}
+
+async function runThread(t, text, atts, allow, label) {
   if (running) return false;
   const proj = projects.get(t.project);
   running = t.id; t.running = true; S.orchModel = t.model; sendProjects();
-  add(t, { kind: 'user', text, atts: (atts || []).map((a) => ({ name: a.name, type: a.type })) });
-  const ac = new AbortController(); t.ac = ac;
+  add(t, { kind: 'user', text, ...(label ? { label } : {}), atts: (atts || []).map((a) => ({ name: a.name, type: a.type })) });
+  const ac = new AbortController(); t.ac = ac; t.runId = rid();
   try {
+    if (t.provider && t.provider !== 'claude') { await runCliThread(t, proj, text, ac); return true; }
     const { query } = await SDK();
     const content = [];
     for (const a of atts || []) {
@@ -322,12 +417,12 @@ async function runThread(t, text, atts) {
       options: {
         cwd: proj.folder, model: MODELS[t.model] || t.model, permissionMode: t.mode, allowDangerouslySkipPermissions: true,
         settingSources: ['user', 'project', 'local'], includePartialMessages: true, abortController: ac,
-        agents: AGENTS, hooks: HOOKS, canUseTool: (n, i, o) => askPerm(t, n, i, o),
+        agents: t.kind === 'plan' ? { recall: AGENTS.recall } : AGENTS, hooks: HOOKS, canUseTool: (n, i, o) => askPerm(t, n, i, o),
         systemPrompt: { type: 'preset', preset: 'claude_code', append: t.kind === 'plan' ? PLAN_RULES : ENGINE_RULES },
         ...(t.effort ? { effort: t.effort } : {}), ...(t.sessionId ? { resume: t.sessionId } : {}),
       },
     });
-    t.q = q;
+    t.q = q; t.allow = Array.isArray(allow) ? allow.filter((k) => ONDEMAND[k]) : []; odOff(q);
     q.supportedCommands().then((c) => { if (c && c.length) { cmds = c; send('commands', { list: cmds }); } }).catch(() => {});
     for await (const m of q) handle(t, m);
   } catch (er) {
@@ -336,7 +431,7 @@ async function runThread(t, text, atts) {
   } finally {
     for (const [id, p] of pending) if (p.t === t) answerPerm(id, false, false, 'run ended');
     for (const s of t.subs || []) if (s.status === 'running') { s.status = 'done'; s.ended = Date.now(); subSend(t, s); }
-    t.running = false; t.q = null; t.ac = null; running = null;
+    t.running = false; t.q = null; t.ac = null; running = null; S.ondemand = {};
     if (S.orch === 'thinking' || S.orch === 'writing') S.orch = 'done?';
     if (S.builder === 'building') S.builder = 'idle';
     S.busy = false; push(); sendProjects(); save();
@@ -380,6 +475,12 @@ http.createServer((req, res) => {
     let version = '0.0.0';
     try { version = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')).version; } catch {}
     return json(res, { version, port: PORT, root: path.basename(ROOT), node: process.version });
+  }
+  if (req.method === 'GET' && u === '/ondemand') return json(res, Object.entries(ONDEMAND).map(([name, o]) => ({ name, label: o.label })));
+  if (req.method === 'GET' && u === '/usage') return json(res, aggregateUsage(usageRows));
+  if (req.method === 'GET' && u === '/providers') {
+    const onPath = (n) => { const r = spawnSync(process.platform === 'win32' ? 'where' : 'which', [n], { encoding: 'utf8', windowsHide: true }); return r.status === 0 && !!(r.stdout || '').trim(); };
+    return json(res, PROVIDERS.map((name) => ({ name, available: name === 'claude' || (!!providers[name] && onPath(name)), models: name === 'claude' ? Object.keys(MODELS) : PROVIDER_MODELS[name] || [] })));
   }
   if (req.method === 'GET' && u === '/stream') {
     res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
@@ -457,6 +558,13 @@ http.createServer((req, res) => {
   });
   if (u === '/thread/set') return body(req, (b) => {
     const t = b && threads.get(b.id); if (!t) return done(res, 404);
+    if (b.provider !== undefined && b.provider !== (t.provider || 'claude')) {
+      if (!PROVIDERS.includes(b.provider)) return json(res, { error: 'unknown provider' }, 400);
+      if (b.provider === 'antigravity') return json(res, { error: 'not available yet' }, 400);
+      if (t.running) return json(res, { error: 'thread is running' }, 409);
+      t.provider = b.provider;
+      if (b.model === undefined) t.model = b.provider === 'claude' ? (t.kind === 'plan' ? 'opus' : 'sonnet') : 'default';
+    }
     for (const k of ['mode', 'model', 'effort']) if (b[k] !== undefined) t[k] = b[k];
     if (t.q) { if (b.mode) t.q.setPermissionMode(b.mode).catch(() => {}); if (b.model) t.q.setModel(MODELS[b.model] || b.model).catch(() => {}); }
     if (t.kind === 'engine' && !running) { S.orchModel = t.model; push(); }
@@ -469,16 +577,22 @@ http.createServer((req, res) => {
   if (u === '/chat') return body(req, (b) => {
     const t = b && threads.get(b.thread);
     if (!t || (!String(b.text || '').trim() && !(b.atts && b.atts.length))) return done(res, 400);
-    if (running) return done(res, 409);
-    runThread(t, String(b.text || ''), b.atts); done(res, 202);
+    if (running) {
+      if (!b.steer || running !== t.id || !t.q) return done(res, 409);
+      const text = String(b.text || '');
+      add(t, { kind: 'user', text, label: 'status', atts: [] });
+      t.q.streamInput((async function* () { yield { type: 'user', message: { role: 'user', content: [{ type: 'text', text }] }, parent_tool_use_id: null, priority: 'now' }; })()).catch((er) => add(t, { kind: 'err', text: 'steer failed: ' + ((er && er.message) || er) }));
+      return done(res, 202);
+    }
+    runThread(t, String(b.text || ''), b.atts, b.allow, b.steer ? 'status' : undefined); done(res, 202);
   }, 40e6);
-  if (u === '/chat/stop') return body(req, (b) => { const t = b && threads.get(b.thread); if (t && t.q) t.q.interrupt().catch(() => {}); if (t && t.ac) setTimeout(() => t.ac && t.ac.abort(), 4000); done(res); });
+  if (u === '/chat/stop') return body(req, (b) => { const t = b && threads.get(b.thread); if (t && t.q) t.q.interrupt().catch(() => {}); if (t && t.ac) { const ac = t.ac; setTimeout(() => ac.abort(), 4000); } done(res); });
   if (u === '/chat/perm') return body(req, (b) => { done(res, b && answerPerm(b.id, !!b.allow, !!b.always, b.message) ? 204 : 404); });
   res.writeHead(404); res.end();
-}).listen(PORT, '127.0.0.1', () => {
+}).listen(PORT, HOST, () => {
   load();
-  console.log(`live view on http://127.0.0.1:${PORT} (pid ${process.pid})`);
-  if (process.argv.includes('--open')) {
+  console.log(`live view on http://${HOST}:${PORT} (pid ${process.pid})`);
+  if (process.argv.includes('--open') && process.platform === 'win32') {
     spawn('cmd', ['/c', 'start', '', 'msedge', `--app=http://127.0.0.1:${PORT}`, '--start-maximized'], { detached: true, stdio: 'ignore' }).unref();
   }
 });

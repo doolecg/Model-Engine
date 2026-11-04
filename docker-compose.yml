@@ -1,0 +1,20 @@
+services:
+  model-engine:
+    build: .
+    ports:
+      # host loopback only, so other computers on the network cannot reach it
+      - "127.0.0.1:${MODEL_ENGINE_PORT:-4777}:${MODEL_ENGINE_PORT:-4777}"
+    environment:
+      # the server and the healthcheck read the port from here
+      - MODEL_ENGINE_PORT=${MODEL_ENGINE_PORT:-4777}
+      # passed through from your shell or .env; no default, never written here
+      - ANTHROPIC_API_KEY
+    volumes:
+      # project list survives rebuilds
+      - engine-data:/data
+      # the only host folder the agents can touch
+      - ${WORKSPACE:-./workspace}:/workspace
+    restart: unless-stopped
+
+volumes:
+  engine-data:

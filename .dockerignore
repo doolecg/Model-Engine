@@ -1,0 +1,12 @@
+node_modules
+.git
+docs
+.claude/live/projects.json
+.playwright-mcp
+.env
+*.log
+# trial files at repo root
+/PLAN.md
+/storage*.js
+/todo*.js
+/package.json

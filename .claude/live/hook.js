@@ -1,7 +1,7 @@
 // Forwards a Claude Code hook event to the live view. Fails silently if the server is down.
 const http = require('http');
 // Only runs started by the dashboard chat (or a terminal with MODEL_ENGINE_LIVE=1) report in. Other tools in this folder (T3 Code) stay out.
-if (process.env.MODEL_ENGINE_LIVE !== '1') process.exit(0);
+if (process.env.MODEL_ENGINE_LIVE !== '1' || process.env.CLAUDE_CODE_ENTRYPOINT === 't3-code') process.exit(0);
 let body = '';
 process.stdin.on('data', (d) => (body += d));
 process.stdin.on('end', () => {
