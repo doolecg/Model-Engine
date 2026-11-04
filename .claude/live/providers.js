@@ -159,7 +159,7 @@ const opencode = {
   run({ cwd, text, model, sessionId, signal, onEvent }) {
     let flag;
     try { flag = opencodeFlag(resolveBin('opencode')); } catch (e) { return Promise.reject(e); }
-    const args = ['run', '--format', 'json', ...(flag ? [flag] : []), ...(model ? ['--model', model] : []), ...(sessionId ? ['--session', sessionId] : []), text];
+    const args = ['run', '--format', 'json', ...(flag ? [flag] : []), ...(model ? ['--model', model] : []), ...(sessionId ? ['--session', sessionId] : []), '--', text]; // '--' so a prompt starting with '-' is not read as a flag
     return runCli({ name: 'opencode', args, cwd, env: { OPENCODE_CONFIG_CONTENT: '{"share":"disabled","autoupdate":false}' }, signal, onEvent, parse: parseOpencodeLine });
   },
 };

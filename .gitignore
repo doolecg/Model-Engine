@@ -4,6 +4,7 @@ node_modules/
 .env
 *.log
 /workspace/
+/.update/
 
 # trial todo-app files at repo root
 /PLAN.md

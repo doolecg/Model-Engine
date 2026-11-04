@@ -5,9 +5,12 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 const crypto = require('crypto');
-const { spawn, spawnSync } = require('child_process');
+const { spawn, spawnSync, execFile } = require('child_process');
 const { providers } = require('./providers.js');
+const { detectAccounts } = require('./accounts.js');
 const { aggregateUsage } = require('./usage.js');
+const updater = require('./updater.js');
+const remote = require('./remote.js');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const PORT = Number(process.env.MODEL_ENGINE_PORT) || 4777;
@@ -23,6 +26,9 @@ const S = {
   mcpSeen: {}, ondemand: {}, active: {}, busy: false,
 };
 const clients = new Set();
+// Remote access (Tailscale): settings, in-memory sessions, login rate limit, open remote streams.
+const RM = remote.restore(null), sessions = remote.createSessions(), limiter = remote.createLimiter(), globalLimiter = remote.createLimiter({ max: 30 }), remoteStreams = new Set();
+function dropRemoteSessions() { sessions.clear(); for (const r of remoteStreams) { try { r.end(); } catch {} } remoteStreams.clear(); }
 
 function send(type, data) {
   const m = `data: ${JSON.stringify({ type, ...data })}\n\n`;
@@ -161,8 +167,8 @@ function apply(e, fromSdk) {
       }
       if (!ag) pulse('call');
     } else if (t === 'Grep') S.recall.grep++;
-    else if (/^(Write|Edit|MultiEdit|NotebookEdit)$/.test(t) && e.tool_input && (e.tool_input.file_path || e.tool_input.notebook_path)) {
-      const fp = e.tool_input.file_path || e.tool_input.notebook_path, rel = path.relative(e.cwd || ROOT, fp);
+    else if (/^(Write|Edit|MultiEdit|NotebookEdit)$/.test(t) && e.tool_input && (typeof e.tool_input.file_path === 'string' ? e.tool_input.file_path : typeof e.tool_input.notebook_path === 'string' ? e.tool_input.notebook_path : '')) {
+      const fp = typeof e.tool_input.file_path === 'string' ? e.tool_input.file_path : e.tool_input.notebook_path, rel = path.relative(e.cwd || ROOT, fp);
       if (CP) {
         CP.changes.push([stamp(), t, rel && !rel.startsWith('..') && !path.isAbsolute(rel) ? rel : fp, buildDiff(t, e.tool_input)]);
         if (CP.changes.length > 60) CP.changes.shift();
@@ -221,7 +227,7 @@ function save() {
   saveTimer = setTimeout(() => {
     try {
       const out = [...projects.values()].map((p) => ({ ...pmeta(p), log: p.log, changes: p.changes.map((c, i, a) => (i < a.length - 10 ? c.slice(0, 3) : c)), threads: [p.planThread, p.engineThread].map((id) => { const t = threads.get(id); return { ...tmeta(t), running: false, sessionId: t.sessionId, sessions: t.sessions || {}, items: t.items.filter((i) => i.kind !== 'perm' || i.status !== 'pending').slice(-200) }; }) }));
-      fs.writeFileSync(STORE, JSON.stringify({ projects: out, usage: usageRows }));
+      fs.writeFileSync(STORE, JSON.stringify({ projects: out, usage: usageRows, updates: UPD.settings, remote: { enabled: RM.enabled, host: RM.host, salt: RM.salt, hash: RM.hash } }));
     } catch {}
   }, 400);
 }
@@ -244,6 +250,8 @@ function load() {
   try {
     const data = JSON.parse(fs.readFileSync(STORE, 'utf8'));
     if (!Array.isArray(data) && Array.isArray(data.usage)) usageRows = data.usage.slice(-USAGE_CAP);
+    if (!Array.isArray(data)) Object.assign(UPD.settings, updSettings(data.updates) || {});
+    if (!Array.isArray(data)) Object.assign(RM, remote.restore(data.remote));
     for (const p of Array.isArray(data) ? data : data.projects || []) {
       if (!fs.existsSync(p.folder)) continue;
       projects.set(p.id, { id: p.id, name: p.name, folder: p.folder, planThread: p.planThread, engineThread: p.engineThread, log: Array.isArray(p.log) ? p.log.slice(-40) : [], changes: Array.isArray(p.changes) ? p.changes.slice(-60) : [], t0: Date.now() });
@@ -469,11 +477,115 @@ const PICK_SCRIPT = "Add-Type -AssemblyName System.Windows.Forms; [Console]::Out
   + "$d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'Choose a project folder'; $d.ShowNewFolderButton = $true; "
   + "if ($d.ShowDialog($o) -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($d.SelectedPath) }; $o.Close()";
 let picking = null;
+const IN_DOCKER = process.env.MODEL_ENGINE_IN_DOCKER === '1' || fs.existsSync('/.dockerenv'), WORKSPACE = '/workspace';
+// In Docker the folder picker is confined to /workspace (symlinks resolved); null = not allowed.
+function fsAllowed(p) {
+  if (!IN_DOCKER) return path.resolve(p);
+  let full = path.resolve(WORKSPACE, p || '.');
+  try { full = fs.realpathSync(full); } catch {}
+  return full === WORKSPACE || full.startsWith(WORKSPACE + '/') ? full : null;
+}
 
-http.createServer((req, res) => {
-  const hosts = [`127.0.0.1:${PORT}`, `localhost:${PORT}`], origin = req.headers.origin;
-  if (!hosts.includes(req.headers.host) || (origin !== undefined && !hosts.some((h) => origin === `http://${h}`))) { res.writeHead(403); return res.end(); }
+// ---------------- updates (logic in updater.js; nothing here runs unless the user or the settings ask) ----------------
+const UPD = { settings: { channel: 'stable', check: true, install: false }, cache: {}, working: false };
+const idle = () => !S.busy && !running && ![...threads.values()].some((t) => t.running);
+const updBlock = () => updater.refusal({ root: ROOT, busy: !idle() });
+// keeps only valid fields; strict = null when a given field is invalid
+function updSettings(b, strict) {
+  if (!b || typeof b !== 'object') return null;
+  const out = {};
+  if (b.channel === 'stable' || b.channel === 'dev') out.channel = b.channel; else if (strict && b.channel !== undefined) return null;
+  for (const k of ['check', 'install']) { if (typeof b[k] === 'boolean') out[k] = b[k]; else if (strict && b[k] !== undefined) return null; }
+  return out;
+}
+// at most one GitHub call per hour per channel; any failure is quiet and shows as "could not check"
+async function updCheck() {
+  const ch = UPD.settings.channel, c = UPD.cache[ch] || (UPD.cache[ch] = { at: 0, latest: null, error: false });
+  if (c.at && Date.now() - c.at < 3600e3) return;
+  c.at = Date.now();
+  try { c.latest = await updater.checkLatest(ch); c.error = false; } catch { c.latest = null; c.error = true; }
+}
+function updStatus() {
+  const ch = UPD.settings.channel, c = UPD.cache[ch] || { at: 0, latest: null, error: false }, inst = updater.readVersion(__dirname), block = updBlock();
+  const l = c.latest, available = updater.isAvailable(ch, inst, l);
+  const message = c.error ? 'Could not check' : !c.at ? 'Not checked yet' : !l ? (ch === 'dev' ? 'No dev branch yet' : 'No release yet') : available ? 'Update available: ' + l.version : 'Up to date';
+  return {
+    channel: ch, installed: { version: inst.version, ref: inst.ref, channel: inst.channel },
+    latest: l ? { version: l.version, ref: l.ref, notes: l.notes, url: l.url } : null,
+    available, canUpdate: !block, reason: block ? block.message : null, blocked: block ? block.kind : null,
+    message, error: c.error, lastChecked: c.at || null, hasBackup: !!updater.backupInfo(ROOT), working: UPD.working,
+    auto: { check: UPD.settings.check, install: UPD.settings.install },
+  };
+}
+const updFail = (message, code) => Object.assign(new Error(message), { code });
+// Download, verify and swap the program files. The caller restarts the server after replying.
+async function updInstall() {
+  if (UPD.working) throw updFail('Another update action is running.', 409);
+  const block = updBlock();
+  if (block) throw updFail(block.message, 409);
+  if (!updStatus().available) throw updFail('No update available. Check for updates first.', 409);
+  UPD.working = true;
+  try { return await updater.applyUpdate({ root: ROOT, latest: UPD.cache[UPD.settings.channel].latest, channel: UPD.settings.channel, busy: !idle() }); }
+  catch (er) { throw updFail(er.message, 500); }
+  finally { UPD.working = false; }
+}
+function updRestart() {
+  save();
+  setTimeout(() => {
+    try { updater.respawn({ root: ROOT }); } catch { return; }
+    setTimeout(() => process.exit(0), 100);
+  }, 900);
+}
+async function updAuto() {
+  const b = updBlock();
+  if (!UPD.settings.check || (b && b.kind !== 'busy')) return;
+  await updCheck();
+  if (UPD.settings.install) updInstall().then(updRestart).catch(() => {});
+}
+
+async function remoteStatus() {
+  const ts = await remote.detectTailscale({ execFile, exists: (c) => fs.existsSync(c) });
+  return { enabled: RM.enabled, host: RM.host, tokenSet: !!RM.hash, tailscale: { installed: ts.installed, running: ts.running, dnsName: ts.dnsName }, publishCommand: remote.publishCommand(PORT), sessions: sessions.count() };
+}
+
+const server = http.createServer((req, res) => {
+  const origin = req.headers.origin, host = req.headers.host, loopback = remote.isLoopbackHost(host, PORT);
+  let isRemote = false;
+  if (loopback && !remote.isProxied(req.headers)) {
+    if (origin !== undefined && origin !== `http://127.0.0.1:${PORT}` && origin !== `http://localhost:${PORT}`) { res.writeHead(403); return res.end(); }
+  } else if (!loopback && RM.enabled && remote.isAllowedRemoteHost(host, RM.host)) {
+    if (origin !== undefined && origin !== `https://${RM.host}`) { res.writeHead(403); return res.end(); }
+    isRemote = true;
+  } else { res.writeHead(403); return res.end(); }
   const url = new URL(req.url, 'http://x'), u = url.pathname, q = url.searchParams;
+  if (isRemote) {
+    const authed = sessions.valid(remote.parseCookie(req.headers.cookie, 'me_auth'));
+    if (u === '/auth/ping' && req.method === 'GET') return json(res, { ok: true, authed });
+    if (u === '/auth/login' && req.method === 'POST') {
+      const tsUser = req.headers['tailscale-user-login'];
+      const key = (typeof tsUser === 'string' && tsUser ? tsUser.toLowerCase() : req.socket.remoteAddress) || '?';
+      return body(req, (b) => {
+        const wait = Math.max(limiter.retry(key), globalLimiter.retry('*'));
+        if (wait) { res.setHeader('retry-after', wait); return json(res, { error: 'too many attempts' }, 429); }
+        if (!b || !remote.verifyToken(b.token, RM)) { limiter.fail(key); globalLimiter.fail('*'); return json(res, { error: 'bad token' }, 401); }
+        limiter.reset(key);
+        res.setHeader('set-cookie', `me_auth=${sessions.create()}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${remote.SESSION_MS / 1000}`);
+        json(res, { ok: true });
+      }, 4096);
+    }
+    if (!authed) {
+      if (req.method === 'GET' && (u === '/' || u === '/index.html')) {
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store', 'content-security-policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'" });
+        return res.end(remote.LOGIN_PAGE);
+      }
+      return json(res, { error: 'sign in required' }, 401);
+    }
+    if (u.startsWith('/remote/') || (req.method === 'POST' && ['/fs/pick', '/update/apply', '/update/rollback', '/update/settings'].includes(u))) return json(res, { error: 'only from the PC itself' }, 403);
+  } else if (u.startsWith('/auth/')) { res.writeHead(404); return res.end(); }
+  if (req.method === 'GET' && u === '/remote/status') {
+    res.setHeader('cache-control', 'no-store');
+    return remoteStatus().then((st) => json(res, st)).catch(() => json(res, { error: 'status failed' }, 500));
+  }
   if (req.method === 'GET' && (u === '/'|| u === '/index.html')) {
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     return res.end(fs.readFileSync(path.join(__dirname, 'index.html')));
@@ -483,14 +595,19 @@ http.createServer((req, res) => {
     try { version = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')).version; } catch {}
     return json(res, { version, port: PORT, root: path.basename(ROOT), node: process.version, nativePicker: NATIVE_PICKER });
   }
+  if (req.method === 'GET' && u === '/update/status') return json(res, updStatus());
   if (req.method === 'GET' && u === '/ondemand') return json(res, Object.entries(ONDEMAND).map(([name, o]) => ({ name, label: o.label })));
   if (req.method === 'GET' && u === '/usage') return json(res, aggregateUsage(usageRows));
+  if (req.method === 'GET' && u === '/accounts') {
+    res.setHeader('cache-control', 'no-store');
+    return json(res, { accounts: detectAccounts(), ...(IN_DOCKER ? { note: 'Logins on the host are not visible inside Docker. Use API keys in .env.' } : {}) });
+  }
   if (req.method === 'GET' && u === '/providers') {
     const onPath = (n) => { const r = spawnSync(process.platform === 'win32' ? 'where' : 'which', [n], { encoding: 'utf8', windowsHide: true }); return r.status === 0 && !!(r.stdout || '').trim(); };
     return json(res, PROVIDERS.map((name) => ({ name, available: name === 'claude' || (!!providers[name] && onPath(name)), models: name === 'claude' ? Object.keys(MODELS) : PROVIDER_MODELS[name] || [] })));
   }
   if (req.method === 'GET' && u === '/stream') {
-    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
+    res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive', 'x-accel-buffering': 'no' });
     const w = (o) => res.write(`data: ${JSON.stringify(o)}\n\n`);
     w({ type: 'state', state: view() });
     w({ type: 'projects', list: [...projects.values()].map(pmeta) });
@@ -498,32 +615,40 @@ http.createServer((req, res) => {
     for (const t of threads.values()) w({ type: 'items', thread: t.id, items: t.items });
     for (const t of threads.values()) w({ type: 'subs', thread: t.id, list: (t.subs || []).map((s) => ({ ...s, items: s.items.slice(-40) })) });
     if (cmds.length) w({ type: 'commands', list: cmds });
-    clients.add(res); req.on('close', () => clients.delete(res));
+    clients.add(res); if (isRemote) remoteStreams.add(res);
+    req.on('close', () => { clients.delete(res); remoteStreams.delete(res); });
     prefetch();
     return;
   }
   if (req.method === 'GET' && u === '/fs') {
-    const raw = q.get('path') || '', home = os.homedir();
+    let raw = q.get('path') || ''; const home = os.homedir();
     const quick = [['home', home], ['desktop', path.join(home, 'Desktop')], ['documents', path.join(home, 'Documents')], ['repos', path.dirname(ROOT)]]
       .filter((x) => fs.existsSync(x[1])).map((x) => ({ name: x[0], path: x[1] }));
+    if (IN_DOCKER) quick.splice(0, quick.length, { name: 'workspace', path: WORKSPACE });
+    if (!raw && IN_DOCKER) raw = WORKSPACE;
     if (!raw) {
       const drives = [];
       for (let c = 65; c <= 90; c++) { const d = String.fromCharCode(c) + ':\\'; if (fs.existsSync(d)) drives.push({ name: d, path: d }); }
       return json(res, { path: '', parent: null, dirs: drives, quick });
     }
-    const full = path.resolve(raw);
+    const full = fsAllowed(raw);
+    if (!full) return json(res, { error: 'outside workspace' }, 403);
     try {
       if (!fs.statSync(full).isDirectory()) return json(res, { error: 'not a folder' }, 400);
       const dirs = fs.readdirSync(full, { withFileTypes: true }).filter((d) => d.isDirectory() && !d.name.startsWith('$') && d.name !== 'System Volume Information')
         .map((d) => ({ name: d.name, path: path.join(full, d.name) })).sort((a, b) => a.name.localeCompare(b.name));
       const par = path.dirname(full);
-      return json(res, { path: full, parent: par === full ? '' : par, dirs, quick });
+      return json(res, { path: full, parent: par === full || (IN_DOCKER && full === WORKSPACE) ? '' : par, dirs, quick });
     } catch (er) { return json(res, { error: String(er.message) }, 403); }
   }
   if (req.method === 'GET' && (u === '/files' || u === '/file' || u === '/attach')) {
     const p = projects.get(q.get('project')); if (!p) return done(res, 404);
     const full = inside(p.folder, q.get('path') || '');
     if (!full || !fs.existsSync(full)) return done(res, 404);
+    try {
+      const rf = fs.realpathSync(p.folder), rt = fs.realpathSync(full);
+      if (rt !== rf && !rt.startsWith(rf.endsWith(path.sep) ? rf : rf + path.sep)) return done(res, 403);
+    } catch { return done(res, 403); }
     try {
       if (u === '/files') {
         const list = fs.readdirSync(full, { withFileTypes: true }).filter((d) => !SKIP.has(d.name)).map((d) => ({ name: d.name, dir: d.isDirectory() }))
@@ -542,7 +667,43 @@ http.createServer((req, res) => {
     } catch (er) { return json(res, { error: String(er.message) }, 500); }
   }
   if (req.method !== 'POST') { res.writeHead(404); return res.end(); }
-  if (u === '/event') return body(req, (e) => { if (e) apply(e); done(res); });
+  if (u === '/update/check') return body(req, async () => {
+    if (UPD.working) return json(res, { error: 'Another update action is running.' }, 409);
+    await updCheck(); json(res, updStatus());
+  });
+  if (u === '/update/apply') return body(req, async () => {
+    try { const r = await updInstall(); json(res, { ok: true, restarting: true, from: r.from, to: r.to }); updRestart(); }
+    catch (er) { json(res, { error: er.message }, er.code || 500); }
+  });
+  if (u === '/update/rollback') return body(req, async () => {
+    if (UPD.working) return json(res, { error: 'Another update action is running.' }, 409);
+    UPD.working = true;
+    try { const r = await updater.rollback({ root: ROOT, busy: !idle() }); json(res, { ok: true, restarting: true, to: r.to }); updRestart(); }
+    catch (er) { json(res, { error: er.message }, 409); }
+    finally { UPD.working = false; }
+  });
+  if (u === '/update/settings') return body(req, (b) => {
+    const s = updSettings(b, true);
+    if (!s) return json(res, { error: 'bad settings' }, 400);
+    Object.assign(UPD.settings, s); save(); json(res, updStatus());
+  });
+  if (u === '/remote/settings') return body(req, (b) => {
+    const host = b && typeof b.host === 'string' ? b.host.trim().toLowerCase() : '';
+    if (!b || typeof b.enabled !== 'boolean' || ((b.enabled || host) && !remote.validHost(host))) return json(res, { error: 'Host must be a name ending in .ts.net (letters, digits, dots, hyphens).' }, 400);
+    if (b.enabled !== RM.enabled || (host || null) !== RM.host) dropRemoteSessions();
+    RM.enabled = b.enabled; RM.host = host || null; save();
+    remoteStatus().then((st) => json(res, st)).catch(() => json(res, { error: 'status failed' }, 500));
+  });
+  if (u === '/remote/token') return body(req, () => {
+    const token = remote.generateToken(), h = remote.hashToken(token);
+    RM.salt = h.salt; RM.hash = h.hash; dropRemoteSessions(); save();
+    res.setHeader('cache-control', 'no-store'); json(res, { token });
+  });
+  if (u === '/remote/revoke') return body(req, () => { dropRemoteSessions(); json(res, { ok: true, sessions: 0 }); });
+  if (u === '/event') return body(req, (e) => {
+    try { if (e) apply(e); } catch { return done(res, 400); }
+    done(res);
+  });
   if (u === '/fs/pick') {
     if (!NATIVE_PICKER) return json(res, { error: 'The Windows folder browser is not available here. Use the built-in browser.' }, 501);
     if (picking) return json(res, { error: 'A folder browser is already open' }, 409);
@@ -554,9 +715,10 @@ http.createServer((req, res) => {
     res.on('close', () => { if (!finished) stop(); });
     child.stdout.setEncoding('utf8');
     child.stdout.on('data', (d) => { if (out.length < 4096) out += d; else over = true; });
-    child.on('error', (er) => { clearTimeout(timer); picking = null; finished = true; json(res, { error: 'Could not start PowerShell: ' + er.message }, 501); });
+    child.on('error', (er) => { clearTimeout(timer); picking = null; if (finished || res.headersSent) return; finished = true; json(res, { error: 'Could not start PowerShell: ' + er.message }, 501); });
     child.on('close', () => {
-      clearTimeout(timer); picking = null; finished = true;
+      clearTimeout(timer); picking = null;
+      if (finished || res.headersSent) return; finished = true;
       const p = out.trim();
       if (!p) return json(res, { cancelled: true });
       try { if (over || !fs.existsSync(p) || !fs.statSync(p).isDirectory()) return json(res, { error: 'That is not a folder' }, 400); } catch { return json(res, { error: 'That is not a folder' }, 400); }
@@ -565,12 +727,14 @@ http.createServer((req, res) => {
     return;
   }
   if (u === '/fs/mkdir') return body(req, (b) => {
-    const n = b && String(b.name || '').trim(), dir = b && b.path && path.resolve(String(b.path));
-    if (!n || /[\\/:*?"<>|]/.test(n) || !dir || !fs.existsSync(dir)) return json(res, { error: 'bad name or folder' }, 400);
+    const n = b && String(b.name || '').trim(), dir = b && b.path && fsAllowed(String(b.path));
+    if (b && b.path && !dir) return json(res, { error: 'outside workspace' }, 403);
+    if (!n || /[\\/:*?"<>|]/.test(n) || n === '.' || n === '..' || !dir || !fs.existsSync(dir)) return json(res, { error: 'bad name or folder' }, 400);
     try { const d = path.join(dir, n); fs.mkdirSync(d); json(res, { path: d }); } catch (er) { json(res, { error: String(er.message) }, 400); }
   });
   if (u === '/project/new') return body(req, (b) => {
-    const f = b && b.folder && path.resolve(String(b.folder));
+    const f = b && b.folder && fsAllowed(String(b.folder));
+    if (b && b.folder && !f) return json(res, { error: 'outside workspace' }, 403);
     if (!f || !fs.existsSync(f) || !fs.statSync(f).isDirectory()) return json(res, { error: 'folder not found' }, 400);
     json(res, { id: newProject(f, b.name).id });
   });
@@ -603,8 +767,11 @@ http.createServer((req, res) => {
     t.items = []; t.subs = []; t.sessionId = null; send('items', { thread: t.id, items: [] }); send('subs', { thread: t.id, list: [] }); save(); done(res);
   });
   if (u === '/chat') return body(req, (b) => {
-    const t = b && threads.get(b.thread);
-    if (!t || (!String(b.text || '').trim() && !(b.atts && b.atts.length))) return done(res, 400);
+    const t = b && typeof b === 'object' && threads.get(b.thread);
+    if (!t || (b.text !== undefined && typeof b.text !== 'string') || (b.atts !== undefined && !Array.isArray(b.atts))) return done(res, 400);
+    b.atts = b.atts.slice(0, 20).filter((a) => a && typeof a === 'object' && typeof a.name === 'string' && typeof a.type === 'string' && typeof a.data === 'string' && a.data.length <= 12e6);
+    if (!String(b.text || '').trim() && !b.atts.length) return done(res, 400);
+    if (UPD.working) return done(res, 409);
     if (running) {
       if (!b.steer || running !== t.id || !t.q) return done(res, 409);
       const text = String(b.text || '');
@@ -612,15 +779,38 @@ http.createServer((req, res) => {
       t.q.streamInput((async function* () { yield { type: 'user', message: { role: 'user', content: [{ type: 'text', text }] }, parent_tool_use_id: null, priority: 'now' }; })()).catch((er) => add(t, { kind: 'err', text: 'steer failed: ' + ((er && er.message) || er) }));
       return done(res, 202);
     }
-    runThread(t, String(b.text || ''), b.atts, b.allow, b.steer ? 'status' : undefined); done(res, 202);
+    runThread(t, String(b.text || ''), b.atts, b.allow, b.steer ? 'status' : undefined).catch((er) => {
+      add(t, { kind: 'err', text: 'run failed: ' + ((er && er.message) || er) });
+      t.running = false; if (running === t.id) running = null; push();
+    });
+    done(res, 202);
   }, 40e6);
   if (u === '/chat/stop') return body(req, (b) => { const t = b && threads.get(b.thread); if (t && t.q) t.q.interrupt().catch(() => {}); if (t && t.ac) { const ac = t.ac; setTimeout(() => ac.abort(), 4000); } done(res); });
   if (u === '/chat/perm') return body(req, (b) => { done(res, b && answerPerm(b.id, !!b.allow, !!b.always, b.message) ? 204 : 404); });
   res.writeHead(404); res.end();
-}).listen(PORT, HOST, () => {
-  load();
-  console.log(`live view on http://${HOST}:${PORT} (pid ${process.pid})`);
-  if (process.argv.includes('--open') && process.platform === 'win32') {
-    spawn('cmd', ['/c', 'start', '', 'msedge', `--app=http://127.0.0.1:${PORT}`, '--start-maximized'], { detached: true, stdio: 'ignore' }).unref();
-  }
 });
+// after an update the old process may still hold the port for a moment
+const RESTARTED = process.env.MODEL_ENGINE_RESTART === '1';
+delete process.env.MODEL_ENGINE_RESTART;
+function start(left) {
+  const onErr = (er) => { if (RESTARTED && er.code === 'EADDRINUSE' && left > 0) setTimeout(() => start(left - 1), 500); else throw er; };
+  server.once('error', onErr);
+  server.listen(PORT, HOST, () => {
+    server.off('error', onErr);
+    load();
+    console.log(`live view on http://${HOST}:${PORT} (pid ${process.pid})`);
+    setTimeout(updAuto, 10000).unref();
+    setInterval(updAuto, 24 * 3600e3).unref();
+    if (process.argv.includes('--open') && process.platform === 'win32') {
+      spawn('cmd', ['/c', 'start', '', 'msedge', `--app=http://127.0.0.1:${PORT}`, '--start-maximized'], { detached: true, stdio: 'ignore' }).unref();
+    }
+  });
+}
+if (!IN_DOCKER && !['127.0.0.1', '::1', 'localhost'].includes(HOST)) {
+  if (process.env.MODEL_ENGINE_ALLOW_LAN !== '1') {
+    console.error('MODEL_ENGINE_HOST must be loopback outside Docker; use Tailscale access instead');
+    process.exit(1);
+  }
+  console.warn('WARNING: MODEL_ENGINE_ALLOW_LAN=1: listening on ' + HOST + ' outside Docker. Anyone on the network can reach this server.');
+}
+start(20);

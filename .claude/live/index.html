@@ -3,7 +3,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>Model Engine</title>
 <style>
-:root{--bg:#121214;--card:#17171b;--line:#3a3a44;--gl:#2c2c33;--dim:#7d7d88;--tx:#e8e8ee;--pur:#8b7cf6;--grn:#4ade80;--red:#f4514b;--amb:#f0a64b;--cy:#5eead4}
+:root{--bg:#121214;--card:#17171b;--line:#3a3a44;--gl:#2c2c33;--dim:#9a9aa6;--tx:#e8e8ee;--pur:#8b7cf6;--grn:#4ade80;--red:#f4514b;--amb:#f0a64b;--cy:#5eead4}
 *{box-sizing:border-box}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--tx);font:13px/1.5 ui-monospace,Consolas,"Courier New",monospace}
 body{display:grid;grid-template-rows:auto auto minmax(0,1fr);height:100dvh;overflow:hidden}
@@ -18,7 +18,7 @@ header .brand{color:var(--tx);letter-spacing:.14em;font-weight:700}
 #ptabs{display:flex;gap:4px;flex:1;min-width:0;overflow-x:auto}
 .pt{display:flex;align-items:center;gap:6px;padding:4px 12px;border:1px solid var(--gl);border-bottom:0;border-radius:8px 8px 0 0;color:var(--dim);cursor:pointer;white-space:nowrap}
 .pt.on{background:var(--card);color:var(--tx);border-color:var(--line)}
-.pt .x{opacity:.4;font-size:11px}.pt .x:hover{opacity:1;color:var(--red)}
+.pt .x{font-size:11px}.pt .x:hover{opacity:1;color:var(--red)}
 .pt .run{width:7px;height:7px;border-radius:50%;background:var(--grn);animation:pulse 1.4s ease-in-out infinite}
 #link{color:var(--grn)}#link.off{color:var(--red)}
 #sub{display:flex;align-items:center;gap:12px;padding:8px 20px;border-bottom:1px solid var(--gl);background:var(--card)}
@@ -46,6 +46,8 @@ body.np #mode,body.np #effort,body.np #bots,body.np #rsb,body.np #subs,body.np #
 .sc label{display:flex;align-items:center;gap:8px;margin:6px 0}
 #risk{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;z-index:40;padding:12px}
 #risk[hidden]{display:none}
+.ud{display:inline-block;width:7px;height:7px;margin-left:6px;border-radius:50%;background:var(--grn);vertical-align:middle}.ud[hidden]{display:none}
+#uBtns{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}#uBtns[hidden]{display:none}#uNotes{white-space:pre-wrap}
 #risk .sc{margin:0;max-width:520px}
 #risk .btns{display:flex;gap:6px;justify-content:flex-end;margin-top:8px}
 #dock{display:flex;min-height:0;padding:12px 0 16px}
@@ -73,7 +75,7 @@ svg text{font-family:ui-monospace,Consolas,"Courier New",monospace}
 #ch b{color:var(--grn);letter-spacing:.08em}
 #ch .sp{flex:1}
 #busy{color:var(--amb)}
-#banner{display:none;padding:0 12px;font-size:10px;line-height:1.6;text-align:right;color:var(--red);opacity:.8}
+#banner{display:none;padding:0 12px;font-size:10px;line-height:1.6;text-align:right;color:var(--red)}
 #out{flex:1;min-height:0;overflow:auto;padding:10px 14px;display:flex;flex-direction:column}
 .i{margin:5px 0;word-break:break-word;align-self:flex-start;max-width:92%}
 .i.tool,.i.perm,.i.thinking,.i.meta,.i.err{align-self:stretch;max-width:none}
@@ -82,7 +84,7 @@ svg text{font-family:ui-monospace,Consolas,"Courier New",monospace}
 .chips{display:flex;gap:4px;margin-top:3px;flex-wrap:wrap}
 .chip{border:1px solid var(--line);border-radius:12px;padding:0 8px;color:var(--dim);font-size:.9em;display:inline-flex;align-items:center;gap:6px}
 .chip img{height:28px;border-radius:4px}
-.chip .x{cursor:pointer}
+.chip .x{cursor:pointer;border:0;padding:0;background:none;color:inherit}
 .i.text{white-space:pre-wrap;line-height:1.55;background:#1d1d23;border:1px solid var(--gl);border-radius:14px 14px 14px 4px;padding:8px 12px}
 .i.text pre,.plan pre,.res pre{background:#0e0e11;border:1px solid var(--gl);border-radius:6px;padding:6px 8px;overflow:auto;white-space:pre}
 .i.text code{background:#0e0e11;border-radius:4px;padding:0 4px}
@@ -101,7 +103,8 @@ svg text{font-family:ui-monospace,Consolas,"Courier New",monospace}
 .btns{display:flex;gap:6px;margin-top:6px}
 .btns button:first-child{border-color:var(--grn);color:var(--grn)}.btns button:last-child{border-color:var(--red);color:var(--red)}
 .i.meta{color:var(--dim);font-size:.9em}.i.err{color:var(--red)}
-#toast{display:none;margin:0 14px 4px;color:var(--red)}
+#toast{position:fixed;left:50%;bottom:16px;transform:translateX(-50%);z-index:200;max-width:90vw;padding:6px 14px;background:var(--card);border:1px solid var(--red);border-radius:8px;color:var(--red)}
+#toast:empty{display:none}
 #att{display:flex;gap:6px;padding:0 14px;flex-wrap:wrap}
 #att:not(:empty){padding-bottom:6px}
 #slash{display:none;position:absolute;left:14px;right:14px;bottom:54px;max-height:40%;overflow:auto;background:var(--bg);border:1px solid var(--line);border-radius:8px;z-index:5}
@@ -110,12 +113,13 @@ svg text{font-family:ui-monospace,Consolas,"Courier New",monospace}
 #slash span{color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 #in{display:flex;gap:8px;margin:6px 14px 12px;border:1px solid var(--line);border-radius:8px;padding:4px 8px;align-items:flex-end}
 #in.drag{border-color:var(--grn)}
+#in:focus-within{border-color:var(--grn);box-shadow:0 0 0 1px var(--grn)}
 #txt{flex:1;background:none;border:0;outline:0;resize:none;height:1.5em;max-height:9em;padding:2px 0}
 /* explorer */
 #explorer{display:flex;flex-direction:column;min-height:0;min-width:0;border:1px solid var(--line);border-radius:10px;background:var(--card)}
 #xh{padding:8px 12px;border-bottom:1px solid var(--gl);display:flex;gap:8px;align-items:center}
 #crumb{flex:1;color:var(--dim);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#crumb a{color:var(--cy);cursor:pointer}
+#crumb button{color:var(--cy);cursor:pointer;border:0;padding:0;background:none}
 #xbody{flex:1;min-height:0;display:flex}
 #xl{overflow:auto;width:var(--xw,280px);flex:none;padding:4px 6px}
 #xl div{padding:1px 8px;cursor:pointer;border-radius:4px}
@@ -168,12 +172,14 @@ svg text{font-family:ui-monospace,Consolas,"Courier New",monospace}
 #dvb{margin:0;padding:10px 0;overflow:auto;font:12px/1.5 ui-monospace,Consolas,monospace;color:var(--tx);white-space:pre}
 #dvb div{padding:0 14px;min-width:100%;width:max-content}
 #dvb .a{background:rgba(74,222,128,.12)}#dvb .d{background:rgba(244,81,75,.12)}#dvb .c{color:var(--dim)}#dvb .h{color:var(--pur);text-align:center}
-@media (prefers-reduced-motion:reduce){*{animation:none!important}}
+button:focus-visible,select:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--grn);outline-offset:1px}
+@media (prefers-reduced-motion:reduce){*{animation:none!important}.dot{display:none}}
 body.reduce-motion *{animation:none!important}
+body.reduce-motion .dot{display:none}
 </style></head><body data-tab="plan">
 <header><span class="brand">MODEL ENGINE</span><nav id="ptabs"></nav><span id="link">○ offline</span></header>
 <div id="sub">
- <nav id="itabs"><button data-t="plan" class="on">Plan</button><button data-t="engine">Engine</button><button data-t="usage">Usage</button><button data-t="settings">Settings</button></nav>
+ <nav id="itabs"><button data-t="plan" class="on">Plan</button><button data-t="engine">Engine</button><button data-t="usage">Usage</button><button data-t="settings">Settings<span id="udot" class="ud" role="img" aria-label="Update available" hidden></span></button></nav>
  <span id="folder"></span>
  <button id="push" disabled title="Ask the plan chat to write PLAN.md first">Push to Engine ▸</button>
 </div>
@@ -186,9 +192,27 @@ body.reduce-motion *{animation:none!important}
  </section>
  <section id="setView">
   <div class="sc"><h3>ABOUT</h3><p><b>Model Engine live view</b></p><p id="abt">Loading...</p></div>
+  <div class="sc" role="region" aria-labelledby="updH"><h3 id="updH">UPDATES</h3><p id="updInst">Loading...</p>
+   <label>Channel <select id="uCh"><option value="stable">Stable (latest release)</option><option value="dev">Dev (latest development build)</option></select></label>
+   <label><input type="checkbox" id="uChk"> Check for updates automatically</label>
+   <label><input type="checkbox" id="uIns" aria-describedby="uWarn"> Install updates automatically</label>
+   <p id="uWarn">Runs code downloaded from GitHub without asking.</p>
+   <p id="uMsg" role="status" aria-live="polite"></p><p id="uNotes"></p><p id="uWhy"></p>
+   <div id="uBtns"><button id="uCheck">Check now</button><button id="uGo" disabled>Update now</button><button id="uBack" hidden>Roll back</button></div></div>
+  <div class="sc" role="region" aria-labelledby="rmH"><h3 id="rmH">REMOTE ACCESS (TAILSCALE)</h3>
+   <p id="rmNote" hidden>This can be changed only from the PC itself.</p>
+   <p id="rmTs" role="status" aria-live="polite">Loading...</p>
+   <label><input type="checkbox" id="rmOn"> Allow access over Tailscale</label>
+   <label>Host name <input type="text" id="rmHost" size="34" placeholder="name.tailnet.ts.net" autocomplete="off" spellcheck="false"></label>
+   <div><button id="rmSave">Save</button> <button id="rmGen">Generate access token</button> <button id="rmRev">Sign out all remote sessions</button></div>
+   <div id="rmTokBox" hidden><p><b>Shown once. Anyone with this token and access to your tailnet can run agents on this PC.</b></p><input type="text" id="rmTok" readonly size="50" aria-label="Access token" onfocus="this.select()"> <button id="rmTokCopy">Copy</button></div>
+   <p>Run this on the PC to publish it: <code id="rmCmd">tailscale serve --bg 4777</code> <button id="rmCmdCopy">Copy</button></p>
+   <p>Use tailscale serve (tailnet only). Never use tailscale funnel: it puts this on the public internet.</p>
+   <p id="rmMsg" role="status" aria-live="polite"></p></div>
   <div class="sc warn"><h3>DISCLAIMER</h3><p>Provided "as is", without warranty, under the MIT licence. To the extent permitted by law, the authors are not liable for any loss or damage from using it, including lost data, lost work or damage to files or projects. Nothing here limits liability that cannot be limited by law, such as for death or personal injury caused by negligence. Back up your work. You use it at your own risk.</p><p>Not affiliated with or endorsed by Anthropic. AI output can be wrong; check it before relying on it.</p></div>
   <div class="sc"><h3>WHAT IT RUNS</h3><p>The dashboard chat starts Claude Code (via the Claude Agent SDK, using your own Claude account) in the project folder you pick.</p><p>Agents it starts can read, create, edit and delete files and run shell commands in that folder.</p><p>Hooks in .claude/settings.json forward events to this page on 127.0.0.1.</p><p>The Windows folder browser is opened by a short PowerShell command (no data leaves your computer). Not available in Docker.</p></div>
-  <div class="sc"><h3>PRIVACY</h3><p>The page and server only listen on 127.0.0.1. There are no accounts and no analytics.</p><p>Chats and projects are stored in .claude/live/projects.json on this computer.</p><p>The only thing sent off this computer is your prompts and the files Claude reads. Claude Code itself sends them to Anthropic.</p></div>
+  <div class="sc"><h3>PRIVACY</h3><p>The dashboard listens on this computer only (127.0.0.1). If you turn on Tailscale access, devices on your tailnet can reach it through <code>tailscale serve</code> with an access token. There are no accounts and no analytics.</p><p>Chats and projects are stored in .claude/live/projects.json on this computer.</p><p>Nothing else leaves this computer except what Claude Code itself sends to Anthropic (your prompts and the files Claude reads).</p><p>Account detection only checks that login files or environment variables exist. It never reads their contents.</p><p>It contacts api.github.com and codeload.github.com only to check for and download updates (no data about you or your projects; can be turned off in Updates above).</p></div>
+  <div class="sc" role="region" aria-labelledby="accH"><h3 id="accH">ACCOUNTS</h3><p>Only checks that a login exists. The dashboard never reads or sends your logins; each CLI uses its own.</p><div id="accList" aria-live="polite">Loading...</div><p id="accNote"></p><button id="accRef">Rescan</button></div>
   <div class="sc"><h3>ON-DEMAND TOOLS</h3><p>Off by default. Only the Brain can switch these on, only when a plan needs them. They switch off again when the turn ends.</p><p>Not available inside Docker unless the bridge is reachable from the container.</p><div id="odList"></div></div>
   <div class="sc"><h3>SETTINGS</h3>
    <label><input type="checkbox" id="sRm"> Reduce motion (turns off the wire animations)</label>
@@ -212,9 +236,9 @@ body.reduce-motion *{animation:none!important}
   <select id="effort" title="effort" aria-label="effort"><option>low</option><option>medium</option><option>high</option><option>xhigh</option><option>max</option></select>
   <button id="clear" title="new session">new</button><button id="cc" title="collapse to the side bar">›</button></div>
  <div id="banner">bypass on</div>
- <div id="dv"><div id="dvp" role="dialog" aria-modal="true" aria-labelledby="dvf"><div id="dvh"><span id="dvt"></span><span id="dvf"></span><button id="dvx" type="button" aria-label="Close diff">Close</button></div><pre id="dvb"></pre></div></div>
- <div id="out"></div><div id="toast"></div><div id="att"></div><div id="slash"></div>
- <form id="in"><button type="button" id="attach" title="attach files or images">+</button><textarea id="txt" rows="1" placeholder="message, / for commands, paste images" autocomplete="off"></textarea><button type="button" id="stop" style="display:none">stop</button><button type="submit" id="send">send</button></form>
+ <div id="dv"><div id="dvp" role="dialog" aria-modal="true" aria-labelledby="dvt" aria-describedby="dvf"><div id="dvh"><span id="dvt"></span><span id="dvf"></span><button id="dvx" type="button" aria-label="Close diff">Close</button></div><pre id="dvb" tabindex="0"></pre></div></div>
+ <div id="out"></div><div id="att"></div><div id="slash"></div>
+ <form id="in"><button type="button" id="attach" title="attach files or images">+</button><textarea id="txt" rows="1" aria-label="Message" placeholder="message, / for commands, paste images" autocomplete="off"></textarea><button type="button" id="stop" style="display:none">stop</button><button type="submit" id="send">send</button></form>
  <input type="file" id="file" multiple hidden>
 </section>
 <div class="rz" id="rz2" title="drag to resize"></div>
@@ -223,15 +247,17 @@ body.reduce-motion *{animation:none!important}
 <nav id="rail"><button id="rch" title="chat"><svg viewBox="0 0 24 24"><path d="M21 12a8 8 0 0 1-11.6 7.1L4 20l1.2-4.4A8 8 0 1 1 21 12z"/></svg></button>
  <button id="rsb" title="subagents"><svg viewBox="0 0 24 24"><rect x="5" y="8" width="14" height="11" rx="3"/><path d="M12 4v4"/><circle cx="9.5" cy="13" r=".8"/><circle cx="14.5" cy="13" r=".8"/></svg><span id="rbadge"></span></button></nav>
 </div>
-<div id="risk" hidden><div class="sc warn"><h3 id="rt"></h3><p id="rb"></p><p>This cannot be undone.</p><label><input type="checkbox" id="rno"> Don't ask again</label><div class="btns"><button id="rcancel">cancel</button><button id="rok">continue</button></div></div></div>
-<div id="pick" hidden><div id="pbox"><h3>CHOOSE PROJECT FOLDER</h3>
- <div id="prow"><input id="pp" placeholder="type a path and press Enter"><button id="pgo">go</button></div>
+<div id="risk" hidden><div class="sc warn" role="dialog" aria-modal="true" aria-labelledby="rt"><h3 id="rt"></h3><p id="rb"></p><p id="rw">This cannot be undone.</p><label id="rnol"><input type="checkbox" id="rno"> Don't ask again</label><div class="btns"><button id="rcancel">cancel</button><button id="rok">continue</button></div></div></div>
+<div id="pick" hidden><div id="pbox" role="dialog" aria-modal="true" aria-labelledby="ptitle"><h3 id="ptitle">CHOOSE PROJECT FOLDER</h3>
+ <div id="prow"><input id="pp" aria-label="Folder path" placeholder="type a path and press Enter"><button id="pgo">go</button></div>
  <div id="pq"></div><div id="pl"></div>
- <div id="pfoot"><input id="pn" placeholder="new folder name"><button id="pnew">create</button><span id="pe"></span><button id="pcancel">cancel</button><button id="pwin" hidden>Browse with Windows…</button><button id="pok"disabled>Use folder</button></div></div></div>
+ <div id="pfoot"><input id="pn" aria-label="New folder name" placeholder="new folder name"><button id="pnew">create</button><span id="pe"></span><button id="pcancel">cancel</button><button id="pwin" hidden>Browse with Windows…</button><button id="pok"disabled>Use folder</button></div></div></div>
+<div id="toast" role="status" aria-live="polite"></div>
 <script>
-const C={bg:'#121214',card:'#17171b',l:'#3a3a44',gl:'#2c2c33',d:'#7d7d88',t:'#e8e8ee',p:'#8b7cf6',g:'#4ade80',r:'#f4514b',a:'#f0a64b',c:'#5eead4'};
+const C={bg:'#121214',card:'#17171b',l:'#3a3a44',gl:'#2c2c33',d:'#9a9aa6',t:'#e8e8ee',p:'#8b7cf6',g:'#4ade80',r:'#f4514b',a:'#f0a64b',c:'#5eead4'};
 const NS='http://www.w3.org/2000/svg';let P,FID='';const W={},BIND=[];let S=null;
 function mkel(t,a,x){const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);if(x!=null)e.textContent=x;return e}
+function kbd(e,role,label){e.setAttribute('tabindex','0');e.setAttribute('role',role||'button');if(label)e.setAttribute('aria-label',label);e.addEventListener('keydown',ev=>{if(ev.target===e&&(ev.key==='Enter'||ev.key===' ')){ev.preventDefault();e.dispatchEvent(new MouseEvent('click',{bubbles:true}))}})}
 function el(t,a,x){const e=mkel(t,a,x);P.appendChild(e);return e}
 function mk(id,vb){const s=document.getElementById(id);s.setAttribute('viewBox',vb);s.setAttribute('preserveAspectRatio','xMidYMid meet');s.innerHTML='';P=s;FID='glow'+id;
  s.appendChild(mkel('defs',{})).innerHTML='<filter id="glow'+id+'" x="-100%" y="-100%" width="300%" height="300%"><feGaussianBlur stdDeviation="2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>';return s}
@@ -239,7 +265,7 @@ function T(x,y,s,f,sz,anc,b,ls){return el('text',{x,y,fill:f,'font-size':sz||12,
 function card(x,y,w,h,st){return el('rect',{x,y,width:w,height:h,rx:10,fill:C.card,stroke:st||C.l})}
 function grp(x,y,w,h,label,col){el('rect',{x,y,width:w,height:h,rx:14,fill:'none',stroke:C.gl,'stroke-dasharray':'4 5'});el('circle',{cx:x+16,cy:y+14,r:3,fill:col});T(x+26,y+18,label,C.d,10,'start',1,2)}
 function bar(x,y,w){el('rect',{x,y,width:w,height:4,rx:2,fill:'#3a3a42'});return el('rect',{x,y,width:w,height:4,rx:2,fill:C.g,style:'transform-box:fill-box;transform-origin:0 50%;transform:scaleX(0)'})}
-function setBar(b,mode,col){b.setAttribute('fill',col);b.style.animation=mode==='run'?'fill 1.6s ease-out infinite':'none';b.style.transform=mode==='full'?'scaleX(1)':mode==='zero'?'scaleX(0)':''}
+function setBar(b,mode,col){b.setAttribute('fill',col);b.style.animation=mode==='run'?'fill 1.6s ease-out infinite':'none';b.style.transform=mode==='full'?'scaleX(1)':mode==='zero'?'scaleX(0)':mode==='run'&&(document.body.classList.contains('reduce-motion')||matchMedia('(prefers-reduced-motion:reduce)').matches)?'scaleX(.5)':''}
 function rp(p,r){let d='M'+p[0];for(let i=1;i<p.length-1;i++){const a=p[i-1],b=p[i],c=p[i+1];const l1=Math.hypot(b[0]-a[0],b[1]-a[1]),l2=Math.hypot(c[0]-b[0],c[1]-b[1]),k=Math.min(r,l1/2,l2/2);const u=[(a[0]-b[0])/l1,(a[1]-b[1])/l1],v=[(c[0]-b[0])/l2,(c[1]-b[1])/l2];d+=` L${b[0]+u[0]*k},${b[1]+u[1]*k} Q${b[0]},${b[1]} ${b[0]+v[0]*k},${b[1]+v[1]*k}`}return d+' L'+p[p.length-1]}
 function wire(key,p,col,o){o=o||{};const d=rp(p,10);
  el('path',{d,fill:'none',stroke:C.gl,'stroke-width':1.6});
@@ -247,11 +273,11 @@ function wire(key,p,col,o){o=o||{};const d=rp(p,10);
  const s=p[0];if(!o.nd)el('circle',{cx:s[0],cy:s[1],r:3,fill:C.bg,stroke:col});
  const e=p[p.length-1],q=p[p.length-2],ang=Math.atan2(e[1]-q[1],e[0]-q[0])*180/Math.PI;
  el('path',{d:'M-7,-4L0,0L-7,4Z',fill:col,transform:`translate(${e[0]},${e[1]}) rotate(${ang})`});
- const dur=o.dur||1.4,c=el('circle',{r:3.4,fill:col,filter:'url(#'+FID+')',visibility:'hidden'});
+ const dur=o.dur||1.4,c=el('circle',{r:3.4,fill:col,filter:'url(#'+FID+')',visibility:'hidden',class:'dot'});
  const st=mkel('set',{attributeName:'visibility',to:'visible',begin:'indefinite',dur:dur+'s'});c.appendChild(st);
  const m=mkel('animateMotion',{begin:'indefinite',dur:dur+'s',path:d,fill:'remove'});c.appendChild(m);
  (W[key]=W[key]||[]).push({fl,st,m})}
-function pulse(k){(W[k]||[]).forEach(w=>{w.fl.classList.add('on');clearTimeout(w.t);w.t=setTimeout(()=>w.fl.classList.remove('on'),2200);try{w.st.beginElement();w.m.beginElement()}catch{}})}
+function pulse(k){(W[k]||[]).forEach(w=>{w.fl.classList.add('on');clearTimeout(w.t);w.t=setTimeout(()=>w.fl.classList.remove('on'),2200);if(!document.body.classList.contains('reduce-motion')&&!matchMedia('(prefers-reduced-motion:reduce)').matches)try{w.st.beginElement();w.m.beginElement()}catch{}})}
 const bind=f=>BIND.push(f);function actBind(r,col,fn){const o=r.getAttribute('stroke');r.style.setProperty('--c',col);bind(s=>{const on=!!fn(s);r.classList.toggle('act',on);r.setAttribute('stroke',on?col:o)});return r}
 const BOTS=[];
 function botIcon(x,y){const prev=P,g=el('g',{transform:'translate('+x+','+y+')',style:'cursor:pointer'});P=g;
@@ -260,7 +286,7 @@ function botIcon(x,y){const prev=P,g=el('g',{transform:'translate('+x+','+y+')',
  const h=el('rect',{x:0,y:4,width:16,height:12,rx:3,fill:'none',stroke:C.d,'stroke-width':1.4});
  el('circle',{cx:5,cy:10,r:1.4,fill:C.d});el('circle',{cx:11,cy:10,r:1.4,fill:C.d});
  const t=el('text',{x:21,y:15,fill:C.g,'font-size':12,'font-weight':700},'');
- P=prev;g.addEventListener('click',()=>openSubs());BOTS.push({h,t});return g}
+ P=prev;g.addEventListener('click',()=>openSubs());kbd(g,'button','subagents');BOTS.push({h,t});return g}
 
 const CS={idle:['idle',C.d,'zero'],running:['running…',C.t,'run'],pass:['✓ pass',C.g,'full'],note:['⚠ note',C.a,'full'],fail:['✕ fail',C.r,'full'],done:['✓ done',C.d,'full']};
 function councilCard(k,x,y,w,h,name,scope,wide){
@@ -280,7 +306,7 @@ function recallBits(xa,ya,xb,yb){const cg=T(xa,ya,'0 explores · 0 greps',C.d,11
  bind(s=>{cg.textContent=s.recall.cg+' explores · '+s.recall.grep+' greps';hs.textContent=s.recall.hs+' recalls · '+s.recall.saved+' saved'})}
 let dvPrev=null;
 function showDiff(e){const b=document.getElementById('dvb');b.textContent='';
- document.getElementById('dvt').textContent=e[1];document.getElementById('dvf').textContent=e[2];
+ document.getElementById('dvt').textContent=e[1]+' change';document.getElementById('dvf').textContent=e[2];
  (e[3]||'No diff recorded for this change.').split('\n').forEach(l=>{const d=document.createElement('div');
   d.className=!e[3]?'c':l==='@@'?'h':l.startsWith('+ ')?'a':l.startsWith('- ')?'d':'c';d.textContent=l||' ';b.appendChild(d)});
  dvPrev=document.activeElement;document.getElementById('dv').classList.add('on');document.getElementById('dvx').focus()}
@@ -295,16 +321,16 @@ function logPanel(x,y,w,h,rows,fs,gap){const cd=card(x,y,w,h);const r=[];let n=r
   const g=el('g',{style:'cursor:pointer'}),pv=P;P=g;
   const bg=el('path',{d:'M'+tx+','+(ty+th)+'V'+(ty+6)+'Q'+tx+','+ty+' '+(tx+6)+','+ty+'H'+(tx+tw-6)+'Q'+(tx+tw)+','+ty+' '+(tx+tw)+','+(ty+6)+'V'+(ty+th)+'Z'});
   const ln=el('rect',{x:tx,y:ty,width:tw,height:2,fill:C.g}),t=T(tx+tw/2,ty+17,lab,C.d,fs-1,'middle',1,1);
-  P=pv;tabs[k]={bg,ln,t};g.addEventListener('click',()=>{tb=k;paint();render()})});
- const paint=()=>{for(const k in tabs){const a=k===tb,o=tabs[k];o.bg.setAttribute('fill',a?C.bg:'#1d1d22');o.bg.setAttribute('stroke',a?C.l:C.gl);o.ln.setAttribute('opacity',a?1:0);o.t.setAttribute('fill',a?C.t:C.d)}};paint();
+  P=pv;tabs[k]={bg,ln,t,g};kbd(g,'tab',lab);g.addEventListener('click',()=>{tb=k;paint();render()})});
+ const paint=()=>{for(const k in tabs){const a=k===tb,o=tabs[k];o.bg.setAttribute('fill',a?C.bg:'#1d1d22');o.bg.setAttribute('stroke',a?C.l:C.gl);o.ln.setAttribute('opacity',a?1:0);o.t.setAttribute('fill',a?C.t:C.d);o.g.setAttribute('aria-selected',a)}};paint();
  const tc=tabs.chg.t;
  let cur=[];const hit=[];
  for(let i=0;i<rows;i++){const yy=y+46+i*gap;const hr=el('rect',{x:x+6,y:yy-fs-2,width:w-12,height:gap,rx:4,fill:'#fff','fill-opacity':0,'pointer-events':'none'});
   hr.addEventListener('mouseenter',()=>hr.setAttribute('fill-opacity',.07));hr.addEventListener('mouseleave',()=>hr.setAttribute('fill-opacity',0));
-  hr.addEventListener('click',()=>{const e=cur[i];if(e)showDiff(e)});hit.push(hr);
+  hr.addEventListener('click',()=>{const e=cur[i];if(e)showDiff(e)});kbd(hr,'button');hr.removeAttribute('tabindex');hr.removeAttribute('role');hit.push(hr);
   const row=[T(x+16,yy,'',C.d,fs),T(x+16+fs*6,yy,'',C.t,fs),T(x+16+fs*15,yy,'',C.t,fs)];row.forEach(t=>t.setAttribute('pointer-events','none'));r.push(row)}
  const col={opus:C.p,hindsight:C.a,codegraph:C.c,council:C.t,sonnet:C.t,recall:C.c,you:C.g};
- bind(s=>{const pl=(s.logs&&s.logs[curP])||{},lg=pl.log||[],ch=pl.changes||[];const L=(tb==='log'?lg:ch).slice(-n);const m=Math.floor((w-fs*15-32)/(fs*.6));tc.textContent='CHANGES'+(ch.length?' '+ch.length:'');cur=tb==='chg'?L:[];r.forEach((row,i)=>{const e=L[i];const hr=hit[i];hr.setAttribute('pointer-events',tb==='chg'&&e?'all':'none');hr.style.cursor='pointer';row[0].textContent=e?e[0]:'';row[1].textContent=e?e[1]:'';row[1].setAttribute('fill',e?(tb==='chg'?C.g:col[e[1]]||C.d):C.d);const v=e?String(e[2]):'';row[2].textContent=tb==='chg'&&v.length>m?'…'+v.slice(-(m-1)):v.slice(0,m)})});
+ bind(s=>{const pl=(s.logs&&s.logs[curP])||{},lg=pl.log||[],ch=pl.changes||[];const L=(tb==='log'?lg:ch).slice(-n);const m=Math.floor((w-fs*15-32)/(fs*.6));tc.textContent='CHANGES'+(ch.length?' '+ch.length:'');cur=tb==='chg'?L:[];r.forEach((row,i)=>{const e=L[i];const hr=hit[i];const act=tb==='chg'&&e;hr.setAttribute('pointer-events',act?'all':'none');if(act){hr.setAttribute('tabindex','0');hr.setAttribute('role','button');hr.setAttribute('aria-label','show diff: '+e[1]+' '+e[2])}else{hr.removeAttribute('tabindex');hr.removeAttribute('role');hr.removeAttribute('aria-label')}hr.style.cursor='pointer';row[0].textContent=e?e[0]:'';row[1].textContent=e?e[1]:'';row[1].setAttribute('fill',e?(tb==='chg'?C.g:col[e[1]]||C.d):C.d);const v=e?String(e[2]):'';row[2].textContent=tb==='chg'&&v.length>m?'…'+v.slice(-(m-1)):v.slice(0,m)})});
  return hh=>{cd.setAttribute('height',hh);n=Math.max(1,Math.min(rows,Math.floor((hh-56)/gap)+1));render()}}
 
 function orchBits(xs,ys,bx,by,bw,xd,yd,sz,xu,yu){const sub=T(xu,yu,'',C.d,11),st=T(xs,ys,'idle',C.g,12),b=bar(bx,by,bw),dn=T(xd,yd,'',C.t,sz,'end',1);
@@ -346,7 +372,7 @@ function wideScene(){mk('wide','0 0 1024 640');
  const sv=document.getElementById('wide'),fitH=()=>{const w=sv.clientWidth,h=sv.clientHeight;if(!w||!h)return;const H=Math.max(640,Math.round(1024*h/w));sv.setAttribute('viewBox','0 0 1024 '+H);fit(H-462-2)};
  new ResizeObserver(fitH).observe(sv);fitH()}
 
-function tallScene(){mk('tall','0 0 390 798');const root=P;
+function tallScene(){mk('tall','0 0 390 900');const root=P;
  grp(8,44,364,98,'ORCHESTRATOR',C.g);actBind(card(16,68,348,62,C.g),C.g,s=>s.orch==='thinking'||s.orch==='writing');botIcon(322,74);T(30,92,'ORCHESTRATOR',C.t,14,'start',1);orchBits(30,118,110,113,170,350,118,14,208,92);
  wire('ask',[[130,142],[130,166]],C.p,{nd:1,dur:.8});wire('verdict',[[250,166],[250,142]],C.p,{nd:1,dur:.8});
  const g=el('g',{transform:'translate(0,122)'});P=g;
@@ -364,7 +390,8 @@ function tallScene(){mk('tall','0 0 390 798');const root=P;
  wire('load',[[130,410],[130,430]],C.t,{nd:1,dur:.8});wire('call',[[250,430],[250,410]],C.c,{nd:1,dur:.8});
  wire('out:ui',[[190,498],[190,512],[104,512],[104,548]],C.d);wire('out:code',[[190,498],[190,548]],C.d,{dur:1});wire('out:run',[[190,498],[190,512],[309,512],[309,548]],C.d);
  [['ui',71],['code',190],['run',309]].forEach(n=>wire('f:'+n[0],[[n[1],640],[n[1],664],[382,664],[382,368],[364,368]],C.g,{dur:2}));
- wire('commit',[[364,100],[377,100],[377,230],[364,230]],C.a,{nd:1,dur:1.6});P=root}
+ wire('commit',[[364,100],[377,100],[377,230],[364,230]],C.a,{nd:1,dur:1.6});P=root;
+ logPanel(13,680,364,212,8,11,20)}
 
 wideScene();tallScene();
 function render(){if(S)BIND.forEach(f=>f(S))}
@@ -386,7 +413,8 @@ const MODES={default:'ask',acceptEdits:'edits',plan:'plan',auto:'auto',dontAsk:'
 function drawTabs(){const n=$('ptabs');n.innerHTML='';
  PROJ.forEach(p=>{const run=[p.planThread,p.engineThread].some(id=>THR[id]&&THR[id].running);
   const d=document.createElement('div');d.className='pt'+(p.id===curP?' on':'');d.innerHTML=(run?'<i class="run"></i>':'')+'<span>'+esc(p.name)+'</span><span class="x" title="close">✕</span>';
-  d.onclick=e=>{if(e.target.classList.contains('x')){if(confirm('Close project tab "'+p.name+'"? Its chats are removed; files stay.'))post('/project/close',{id:p.id});return}selectProject(p.id)};n.appendChild(d)});
+  d.onclick=e=>{if(e.target.classList.contains('x')){if(confirm('Close project tab "'+p.name+'"? Its chats are removed; files stay.'))post('/project/close',{id:p.id});return}selectProject(p.id)};
+  kbd(d,'button');kbd(d.querySelector('.x'),'button','close '+p.name);n.appendChild(d)});
  const a=document.createElement('button');a.textContent='+';a.title='add project folder';a.onclick=openPicker;n.appendChild(a)}
 let pendingSelect=null;
 function selectProject(id){curP=id;lsSet('me.p',id);dir='';drawTabs();setTab(tab);render()}
@@ -400,10 +428,64 @@ document.querySelectorAll('#itabs button').forEach(b=>b.onclick=()=>setTab(b.dat
 // ----- settings
 let OD=[];try{OD=JSON.parse(lsGet('me.od')||'[]')}catch{}
 function drawOd(){const l=$('odList');if(!l.dataset.n)return;l.querySelectorAll('[data-od]').forEach(d=>{const on=S&&S.ondemand&&S.ondemand[d.dataset.od];d.textContent=on?'● on':'○ off';d.style.color=on?'var(--grn)':'inherit'})}
-fetch('/ondemand').then(r=>r.json()).then(a=>{const l=$('odList');l.dataset.n=a.length;l.innerHTML=a.map(o=>`<label><input type="checkbox" data-k="${o.name}"${OD.includes(o.name)?' checked':''}> Let the Brain turn this on: ${o.label} <span data-od="${o.name}"></span></label>`).join('');
+fetch('/ondemand').then(r=>r.json()).then(a=>{const l=$('odList');l.dataset.n=a.length;l.innerHTML=a.map(o=>`<label><input type="checkbox" data-k="${esc(o.name)}"${OD.includes(o.name)?' checked':''}> Let the Brain turn this on: ${esc(o.label)} <span data-od="${esc(o.name)}"></span></label>`).join('');
  l.onchange=e=>{const k=e.target.dataset.k;OD=OD.filter(x=>x!==k);if(e.target.checked)OD.push(k);lsSet('me.od',JSON.stringify(OD))};drawOd()}).catch(()=>{});
 BIND.push(drawOd);
-function drawAbout(){fetch('/about').then(r=>r.json()).then(a=>{$('abt').textContent='Version '+a.version+'. Port '+a.port+'. Folder '+a.root+'. Node '+a.node+'.'}).catch(()=>{$('abt').textContent='Could not read /about.'})}
+const ACC_AUTH={'signed-in':'Signed in (login file)','api-key':'API key in environment','not-found':'Not signed in','unknown':"Can't tell"};
+function loadAccounts(){fetch('/accounts',{cache:'no-store'}).then(r=>r.json()).then(d=>{
+ $('accList').innerHTML=d.accounts.map(a=>`<p><b>${esc(a.label)}</b> · CLI ${a.cli==='found'?'found':'not found'} · ${esc(ACC_AUTH[a.auth]||ACC_AUTH.unknown)}</p>`).join('');
+ $('accNote').textContent=d.note||''}).catch(()=>{$('accList').textContent='Could not read /accounts.'})}
+$('accRef').onclick=loadAccounts;
+// ----- updates (the server does the work; this page only shows it and asks)
+let UP=null,upBusy=false,upNote='';
+function updRender(){if(!UP)return;const u=UP,blk=u.blocked==='docker'||u.blocked==='git';
+ $('udot').hidden=!u.available;
+ $('updInst').textContent='Installed: '+u.installed.version+(u.installed.channel==='dev'&&u.installed.ref?' ('+u.installed.ref.slice(0,7)+')':'')+'. Channel: '+(u.channel==='dev'?'Dev':'Stable')+'.';
+ $('uCh').value=u.channel;$('uChk').checked=u.auto.check;$('uIns').checked=u.auto.install;
+ $('uMsg').textContent=upNote||u.message+(u.lastChecked?' (checked '+new Date(u.lastChecked).toLocaleTimeString()+')':'');
+ $('uNotes').textContent=u.available&&u.latest&&!upNote?u.latest.notes:'';
+ $('uWhy').textContent=u.reason||'';
+ $('uBtns').hidden=blk;$('uCheck').disabled=upBusy;$('uGo').disabled=upBusy||!u.available||!u.canUpdate;
+ $('uBack').hidden=!u.hasBackup;$('uBack').disabled=upBusy||!u.canUpdate}
+function updLoad(){return fetch('/update/status',{cache:'no-store'}).then(r=>r.json()).then(j=>{UP=j;updRender()}).catch(()=>{upNote='Could not read /update/status.';if(UP)updRender();else $('uMsg').textContent=upNote})}
+async function updCall(url,body,busyMsg){upBusy=true;upNote=busyMsg||'';updRender();
+ try{const r=await post(url,body),j=await r.json();if(!r.ok)throw new Error(j.error||'failed');if(j.available!==undefined)UP=j;upNote='';return j}
+ catch(e){upNote='Failed: '+e.message;throw e}finally{upBusy=false;updRender()}}
+const RW0='This cannot be undone.';
+// same dialog as the permission warning, with its own wording and without "Don't ask again"
+function updOk(title,body,warn,okText){const prev=document.activeElement;return new Promise(res=>{$('rt').textContent=title;$('rb').textContent=body;$('rw').textContent=warn;$('rnol').hidden=true;$('rok').textContent=okText;$('risk').hidden=false;$('rcancel').focus();
+ const end=ok=>{$('risk').hidden=true;$('rw').textContent=RW0;$('rnol').hidden=false;$('rok').textContent='continue';if(prev&&prev.focus)prev.focus();res(ok)};
+ $('rok').onclick=()=>end(true);$('rcancel').onclick=()=>end(false)})}
+function updWait(){upNote='Restarting...';updRender();setTimeout(function tick(n){fetch('/about',{cache:'no-store'}).then(r=>{if(r.ok)location.reload();else throw 0}).catch(()=>{if(n>40){upNote='The server did not come back. Start it again with the launcher.';updRender()}else setTimeout(()=>tick(n+1),1000)})},2500,0)}
+$('uCheck').onclick=()=>updCall('/update/check',{},'Checking...').catch(()=>{});
+$('uCh').onchange=()=>updCall('/update/settings',{channel:$('uCh').value}).then(()=>updCall('/update/check',{},'Checking...')).catch(()=>{});
+$('uChk').onchange=()=>updCall('/update/settings',{check:$('uChk').checked}).catch(()=>{});
+$('uIns').onchange=()=>updCall('/update/settings',{install:$('uIns').checked}).catch(()=>{});
+$('uGo').onclick=async()=>{if(!UP||!UP.latest)return;
+ if(!await updOk('INSTALL UPDATE','Replaces the program files with '+UP.latest.version+': .claude/ (except projects.json and node_modules), CLAUDE.md, README.md, LICENSE, the launchers, Dockerfile, docker-compose.yml and docs/. Local edits to files in .claude/ and docs/ are replaced. Your projects, .env and workspace are not touched. The server restarts.','The previous version is kept for rollback.','update'))return;
+ try{await updCall('/update/apply',{},'Downloading and installing...');updWait()}catch{}};
+$('uBack').onclick=async()=>{
+ if(!await updOk('ROLL BACK','Puts back the files saved before the last update and removes files that update added. The server restarts.','Your projects, .env and workspace are not touched.','roll back'))return;
+ try{await updCall('/update/rollback',{},'Rolling back...');updWait()}catch{}};
+updLoad();setTimeout(updLoad,15000);setInterval(updLoad,300000);
+// ----- remote access (admin calls work only on the PC itself; the server refuses them remotely)
+const RM_PC=location.hostname==='127.0.0.1'||location.hostname==='localhost';
+function rmMsg(m){$('rmMsg').textContent=m}
+function rmRender(j){const t=j.tailscale;
+ $('rmTs').textContent=(!t.installed?'Tailscale not found. Install it from tailscale.com and sign in.':t.running?'Tailscale found and running.':'Tailscale found but not running.')+(t.dnsName?' Tailnet name: '+t.dnsName+'.':'');
+ $('rmOn').checked=j.enabled;if(j.host||!$('rmHost').value)$('rmHost').value=j.host||t.dnsName||'';
+ $('rmCmd').textContent=j.publishCommand;
+ rmMsg(j.tokenSet?'A token is set. '+j.sessions+' remote session(s) signed in.':'No token yet. Generate one to sign in remotely.')}
+function rmLoad(){if(!RM_PC){$('rmNote').hidden=false;for(const id of ['rmOn','rmHost','rmSave','rmGen','rmRev'])$(id).disabled=true;$('rmTs').textContent='';return}
+ fetch('/remote/status',{cache:'no-store'}).then(r=>r.json()).then(rmRender).catch(()=>{$('rmTs').textContent='Could not read /remote/status.'})}
+async function rmCall(url,b){const r=await post(url,b),j=await r.json();if(!r.ok)throw new Error(j.error||'failed');return j}
+$('rmSave').onclick=()=>rmCall('/remote/settings',{enabled:$('rmOn').checked,host:$('rmHost').value.trim()}).then(j=>{rmRender(j);rmMsg('Saved.')}).catch(e=>rmMsg('Failed: '+e.message));
+$('rmGen').onclick=()=>rmCall('/remote/token',{}).then(j=>{$('rmTok').value=j.token;$('rmTokBox').hidden=false;$('rmTok').focus();$('rmTok').select();rmMsg('New token made. All remote sessions were signed out.')}).catch(e=>rmMsg('Failed: '+e.message));
+$('rmRev').onclick=()=>rmCall('/remote/revoke',{}).then(()=>{rmMsg('All remote sessions signed out.')}).catch(e=>rmMsg('Failed: '+e.message));
+const rmCopy=(id,m)=>{const v=$(id).value!==undefined&&$(id).tagName==='INPUT'?$(id).value:$(id).textContent;(navigator.clipboard?navigator.clipboard.writeText(v):Promise.reject()).then(()=>rmMsg(m)).catch(()=>{if($(id).select){$(id).select();rmMsg('Press Ctrl+C to copy.')}else rmMsg('Select the text and copy it.')})};
+$('rmTokCopy').onclick=()=>rmCopy('rmTok','Token copied.');
+$('rmCmdCopy').onclick=()=>rmCopy('rmCmd','Command copied.');
+function drawAbout(){loadAccounts();updLoad();rmLoad();fetch('/about').then(r=>r.json()).then(a=>{$('abt').textContent='Version '+a.version+'. Port '+a.port+'. Folder '+a.root+'. Node '+a.node+'.'}).catch(()=>{$('abt').textContent='Could not read /about.'})}
 function applyMotion(){document.body.classList.toggle('reduce-motion',lsGet('me.rm')==='1')}
 $('sRm').checked=lsGet('me.rm')==='1';applyMotion();
 $('sRm').onchange=e=>{lsSet('me.rm',e.target.checked?'1':'0');applyMotion()};
@@ -413,8 +495,8 @@ $('sRisk').onclick=()=>{lsSet('me.riskoff','0');toast('Warning will show again.'
 // One-time warning before a mode that lets agents change files without asking each time.
 const RISKY={acceptEdits:'Edits mode lets agents create, edit and delete files in this project folder without asking each time.',auto:'Auto mode lets agents run tools in this project folder without asking each time. That can change or delete files.'};
 function riskOk(mode){if(!RISKY[mode]||lsGet('me.riskoff')==='1')return Promise.resolve(true);
- return new Promise(res=>{$('rt').textContent='CHANGE PERMISSION MODE';$('rb').textContent=RISKY[mode];$('rno').checked=false;$('risk').hidden=false;
-  const end=ok=>{$('risk').hidden=true;if(ok&&$('rno').checked)lsSet('me.riskoff','1');res(ok)};
+ const rPrev=document.activeElement;return new Promise(res=>{$('rt').textContent='CHANGE PERMISSION MODE';$('rb').textContent=RISKY[mode];$('rno').checked=false;$('risk').hidden=false;$('rcancel').focus();
+  const end=ok=>{$('risk').hidden=true;if(rPrev&&rPrev.focus)rPrev.focus();if(ok&&$('rno').checked)lsSet('me.riskoff','1');res(ok)};
   $('rok').onclick=()=>end(true);$('rcancel').onclick=()=>end(false)})}
 
 // ----- chat render
@@ -437,10 +519,10 @@ function loadChat(){const t=thr();out.innerHTML='';if(!t)return;
  $('banner').style.display=t.mode==='bypassPermissions'?'block':'none';
  $('busy').textContent=t.running?'working…':'';$('stop').style.display=t.running?'':'none';$('rch').classList.toggle('run',!!t.running)}
 out.addEventListener('click',e=>{const b=e.target.closest('button[data-a]');if(!b)return;const id=b.closest('.i').dataset.id;const a=b.dataset.a;post('/chat/perm',{id,allow:a!=='deny',always:a==='always'})});
-function toast(m){const t=$('toast');t.textContent=m;t.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>t.style.display='none',4000)}
+function toast(m){const t=$('toast');t.textContent=m;clearTimeout(toast.t);toast.t=setTimeout(()=>t.textContent='',4000)}
 
 // ----- composer
-function drawAtt(){const n=$('att');n.innerHTML='';att.forEach((a,k)=>{const c=document.createElement('span');c.className='chip';c.innerHTML=(a.type.startsWith('image/')?'<img src="data:'+a.type+';base64,'+a.data+'">':'')+esc(a.name)+' <span class="x">✕</span>';c.querySelector('.x').onclick=()=>{att.splice(k,1);drawAtt()};n.appendChild(c)})}
+function drawAtt(){const n=$('att');n.innerHTML='';att.forEach((a,k)=>{const c=document.createElement('span');c.className='chip';c.innerHTML=(a.type.startsWith('image/')?'<img src="data:'+a.type+';base64,'+a.data+'">':'')+esc(a.name)+' <button type="button" class="x" aria-label="Remove attachment">✕</button>';c.querySelector('.x').onclick=()=>{att.splice(k,1);drawAtt()};n.appendChild(c)})}
 function addFile(f){if(f.size>8e6){toast(f.name+' is over 8 MB');return}const r=new FileReader();r.onload=()=>{att.push({name:f.name||'pasted-image.png',type:f.type||'text/plain',data:String(r.result).split(',')[1]});drawAtt()};r.readAsDataURL(f)}
 $('attach').onclick=()=>$('file').click();
 $('file').onchange=e=>{[...e.target.files].forEach(addFile);e.target.value=''};
@@ -500,11 +582,11 @@ form.addEventListener('submit',e=>{e.preventDefault();sendMsg()});
 // ----- explorer
 async function loadDir(){const p=proj();if(!p)return;
  const r=await fetch('/files?project='+p.id+'&path='+encodeURIComponent(dir));if(!r.ok)return;const {list}=await r.json();
- const parts=dir?dir.split('/'):[];$('crumb').innerHTML='<a data-d="">'+esc(p.name)+'</a>'+parts.map((x,k)=>' / <a data-d="'+esc(parts.slice(0,k+1).join('/'))+'">'+esc(x)+'</a>').join('');
+ const parts=dir?dir.split('/'):[];$('crumb').innerHTML='<button type="button" data-d="">'+esc(p.name)+'</button>'+parts.map((x,k)=>' / <button type="button" data-d="'+esc(parts.slice(0,k+1).join('/'))+'">'+esc(x)+'</button>').join('');
  const n=$('xl');n.innerHTML='';
- if(dir){const u=document.createElement('div');u.className='d';u.textContent='..';u.onclick=()=>{dir=dir.split('/').slice(0,-1).join('/');loadDir()};n.appendChild(u)}
- list.forEach(f=>{const d=document.createElement('div');d.className=f.dir?'d':'';d.textContent=(f.dir?'▸ ':'  ')+f.name;d.onclick=()=>{const rel=(dir?dir+'/':'')+f.name;if(f.dir){dir=rel;loadDir()}else preview(rel)};n.appendChild(d)})}
-$('crumb').onclick=e=>{const a=e.target.closest('a');if(a){dir=a.dataset.d;loadDir()}};
+ if(dir){const u=document.createElement('div');u.className='d';u.textContent='..';u.onclick=()=>{dir=dir.split('/').slice(0,-1).join('/');loadDir()};kbd(u);n.appendChild(u)}
+ list.forEach(f=>{const d=document.createElement('div');d.className=f.dir?'d':'';d.textContent=(f.dir?'▸ ':'  ')+f.name;d.onclick=()=>{const rel=(dir?dir+'/':'')+f.name;if(f.dir){dir=rel;loadDir()}else preview(rel)};kbd(d);n.appendChild(d)})}
+$('crumb').onclick=e=>{const a=e.target.closest('button');if(a){dir=a.dataset.d;loadDir()}};
 $('xr').onclick=()=>{loadDir();checkPlan()};
 let prevPath=null;
 async function preview(rel){const p=proj();prevPath=rel;$('xa').disabled=!rel;
@@ -521,18 +603,28 @@ $('push').onclick=async()=>{const p=proj();if(!p)return;const r=await post('/pro
  const a=await fetch('/attach?project='+p.id+'&path='+encodeURIComponent(j.attach));if(!a.ok){toast('cannot attach PLAN.md');return}
  att=[await a.json()];drawAtt();setTab('engine');$('txt').value=j.message;$('txt').style.height='auto';$('txt').style.height=Math.min($('txt').scrollHeight,200)+'px';$('txt').focus()};
 
+// ----- modal keys: Escape, Tab trap (the diff dialog closes itself on Escape above)
+document.addEventListener('keydown',e=>{
+ const r=!$('risk').hidden,p=!$('pick').hidden,box=r?$('risk'):p?$('pick'):$('dv').classList.contains('on')?$('dv'):null;if(!box)return;
+ if(e.key==='Escape'){if(r)$('rcancel').click();else if(p)closePicker();return}
+ if(e.key!=='Tab')return;
+ const f=[...box.querySelectorAll('button:not(:disabled),input:not(:disabled),select,textarea,[tabindex="0"]')].filter(x=>x.offsetParent!==null),a=f[0],z=f[f.length-1],cur=document.activeElement;
+ if(!a)return;
+ if(e.shiftKey&&(cur===a||!box.contains(cur))){e.preventDefault();z.focus()}else if(!e.shiftKey&&(cur===z||!box.contains(cur))){e.preventDefault();a.focus()}});
 // ----- stream
 let fsCur='';
 function pickErr(m){$('pe').textContent=m||''}
 async function loadFs(p){pickErr('');const r=await fetch('/fs?path='+encodeURIComponent(p||'')),j=await r.json();if(!r.ok){pickErr(j.error||'cannot open');return}
  fsCur=j.path;$('pp').value=j.path;const L=$('pl');L.innerHTML='';
- if(j.path){const u=document.createElement('div');u.textContent='↑ up';u.onclick=()=>loadFs(j.parent);L.appendChild(u)}
- j.dirs.forEach(d=>{const e=document.createElement('div');e.textContent='▸ '+d.name;e.onclick=()=>loadFs(d.path);L.appendChild(e)});
+ if(j.path){const u=document.createElement('div');u.textContent='↑ up';u.onclick=()=>loadFs(j.parent);kbd(u);L.appendChild(u)}
+ j.dirs.forEach(d=>{const e=document.createElement('div');e.textContent='▸ '+d.name;e.onclick=()=>loadFs(d.path);kbd(e);L.appendChild(e)});
  const q=$('pq');q.innerHTML='';[{name:'drives',path:''},...j.quick].forEach(x=>{const b=document.createElement('button');b.textContent=x.name;b.onclick=()=>loadFs(x.path);q.appendChild(b)});
  $('pok').disabled=!j.path;$('pok').textContent=j.path?'Use '+(j.path.split(/[\\/]/).filter(Boolean).pop()||j.path):'Use folder'}
-function openPicker(){$('pick').hidden=false;const p=proj();loadFs(p?p.folder:'')}
-$('pcancel').onclick=()=>{$('pick').hidden=true};
-$('pick').addEventListener('mousedown',e=>{if(e.target.id==='pick')$('pick').hidden=true});
+let pkPrev=null;
+function openPicker(){pkPrev=document.activeElement;$('pick').hidden=false;$('pp').focus();const p=proj();loadFs(p?p.folder:'')}
+function closePicker(){$('pick').hidden=true;if(pkPrev&&pkPrev.focus)pkPrev.focus()}
+$('pcancel').onclick=closePicker;
+$('pick').addEventListener('mousedown',e=>{if(e.target.id==='pick')closePicker()});
 $('pgo').onclick=()=>loadFs($('pp').value.trim());
 $('pp').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();$('pgo').click()}});
 $('pnew').onclick=async()=>{const n=$('pn').value.trim();if(!n||!fsCur){pickErr('open a folder first and type a name');return}
@@ -542,7 +634,7 @@ $('pwin').onclick=async()=>{const b=$('pwin');b.disabled=true;b.textContent='Ope
  try{const r=await post('/fs/pick',{}),j=await r.json();if(!r.ok)toast(j.error||'folder browser failed');else if(j.cancelled)toast('No folder chosen');else await loadFs(j.path)}
  catch{toast('folder browser failed')}
  b.disabled=false;b.textContent='Browse with Windows…'};
-$('pok').onclick=async()=>{if(!fsCur)return;const r=await post('/project/new',{folder:fsCur}),j=await r.json();if(!r.ok){pickErr(j.error||'failed');return}pendingSelect=j.id;$('pick').hidden=true};
+$('pok').onclick=async()=>{if(!fsCur)return;const r=await post('/project/new',{folder:fsCur}),j=await r.json();if(!r.ok){pickErr(j.error||'failed');return}pendingSelect=j.id;closePicker()};
 let SUBS={},subSel=null;
 function subList(){const t=thr();return t?(SUBS[t.id]||[]).slice().sort((a,b)=>b.started-a.started):[]}
 function drawBots(){const n=subList().filter(s=>s.status==='running').length;
@@ -563,7 +655,7 @@ function drawSubs(){const L=subList(),b=$('sb');b.innerHTML='';
  if(!L.length){b.innerHTML='<div class="sr" style="cursor:default;color:var(--dim)">no subagents in this chat yet</div>';return}
  L.forEach(s=>{const r=document.createElement('div');r.className='sr'+(s.status==='running'?' run':'');
   r.innerHTML='<i class="d"></i><b>'+esc(s.type)+'</b> <span style="color:var(--dim)">'+s.status+(s.started?' · '+ago((s.ended||Date.now())-s.started):'')+'</span><small>'+esc(s.desc||'')+'</small><small>'+esc(lastLine(s))+'</small>';
-  r.onclick=()=>{subSel=s.id;drawSubs()};b.appendChild(r)})}
+  r.onclick=()=>{subSel=s.id;drawSubs()};kbd(r);b.appendChild(r)})}
 function openSubs(){subSel=null;dock.subs=true;applyDock();drawSubs()}
 $('bots').onclick=openSubs;$('sc').onclick=()=>{dock.subs=false;applyDock()};
 setInterval(()=>{if(!document.body.classList.contains('subs-off')&&subList().some(s=>s.status==='running'))drawSubs()},2000);
@@ -573,7 +665,8 @@ if(innerWidth<=700&&!lsGet('me.dock'))dock.chat=false;
 function applyDock(){const b=document.body.classList,r=document.documentElement.style;b.toggle('chat-off',!dock.chat);b.toggle('subs-off',!dock.subs);
  $('rch').classList.toggle('on',dock.chat);$('rsb').classList.toggle('on',dock.subs);
  r.setProperty('--cw',dock.cw+'px');r.setProperty('--sw',dock.sw+'px');r.setProperty('--xw',dock.xw+'px');lsSet('me.dock',JSON.stringify(dock))}
-function dragger(h,key,min,sign){h.addEventListener('pointerdown',e=>{e.preventDefault();h.setPointerCapture(e.pointerId);const x0=e.clientX,w0=dock[key];h.classList.add('drag');
+function dragger(h,key,min,sign){h.tabIndex=0;h.setAttribute('role','separator');h.setAttribute('aria-orientation','vertical');h.setAttribute('aria-label','Resize panel');
+ h.addEventListener('keydown',e=>{const d=e.key==='ArrowRight'?1:e.key==='ArrowLeft'?-1:0;if(!d)return;e.preventDefault();dock[key]=Math.round(Math.max(min,Math.min(innerWidth*.7,dock[key]+sign*d*20)));applyDock()});h.addEventListener('pointerdown',e=>{e.preventDefault();h.setPointerCapture(e.pointerId);const x0=e.clientX,w0=dock[key];h.classList.add('drag');
  const mv=ev=>{dock[key]=Math.round(Math.max(min,Math.min(innerWidth*.7,w0+sign*(ev.clientX-x0))));applyDock()},
   up=()=>{h.classList.remove('drag');h.removeEventListener('pointermove',mv);h.removeEventListener('pointerup',up)};
  h.addEventListener('pointermove',mv);h.addEventListener('pointerup',up)})}
