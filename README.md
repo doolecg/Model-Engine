@@ -80,6 +80,8 @@ The roles, as set in `CLAUDE.md` and `.claude/agents`:
 - **Builder (Sonnet).** The only agent that edits files. It takes one short task card at a time and runs its own check.
 - **Council (Haiku).** Three members: UI, code and run. UI and code read the diff. Run executes the tests and starts the app. Each replies pass, note or fail.
 
+Also: choose a project folder with the Windows folder browser (not in Docker).
+
 ### On-demand tools
 
 Frugal Blender is an optional MCP server (named `blender`) that you install yourself. It is off by default and only the Brain (reviewer) can switch it on, only when a plan needs it, and it switches off again when the turn ends. You must also tick it under Settings > On-demand tools. Only the builder can use it.

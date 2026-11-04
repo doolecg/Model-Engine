@@ -187,7 +187,7 @@ body.reduce-motion *{animation:none!important}
  <section id="setView">
   <div class="sc"><h3>ABOUT</h3><p><b>Model Engine live view</b></p><p id="abt">Loading...</p></div>
   <div class="sc warn"><h3>DISCLAIMER</h3><p>Provided "as is", without warranty, under the MIT licence. To the extent permitted by law, the authors are not liable for any loss or damage from using it, including lost data, lost work or damage to files or projects. Nothing here limits liability that cannot be limited by law, such as for death or personal injury caused by negligence. Back up your work. You use it at your own risk.</p><p>Not affiliated with or endorsed by Anthropic. AI output can be wrong; check it before relying on it.</p></div>
-  <div class="sc"><h3>WHAT IT RUNS</h3><p>The dashboard chat starts Claude Code (via the Claude Agent SDK, using your own Claude account) in the project folder you pick.</p><p>Agents it starts can read, create, edit and delete files and run shell commands in that folder.</p><p>Hooks in .claude/settings.json forward events to this page on 127.0.0.1.</p></div>
+  <div class="sc"><h3>WHAT IT RUNS</h3><p>The dashboard chat starts Claude Code (via the Claude Agent SDK, using your own Claude account) in the project folder you pick.</p><p>Agents it starts can read, create, edit and delete files and run shell commands in that folder.</p><p>Hooks in .claude/settings.json forward events to this page on 127.0.0.1.</p><p>The Windows folder browser is opened by a short PowerShell command (no data leaves your computer). Not available in Docker.</p></div>
   <div class="sc"><h3>PRIVACY</h3><p>The page and server only listen on 127.0.0.1. There are no accounts and no analytics.</p><p>Chats and projects are stored in .claude/live/projects.json on this computer.</p><p>The only thing sent off this computer is your prompts and the files Claude reads. Claude Code itself sends them to Anthropic.</p></div>
   <div class="sc"><h3>ON-DEMAND TOOLS</h3><p>Off by default. Only the Brain can switch these on, only when a plan needs them. They switch off again when the turn ends.</p><p>Not available inside Docker unless the bridge is reachable from the container.</p><div id="odList"></div></div>
   <div class="sc"><h3>SETTINGS</h3>
@@ -227,7 +227,7 @@ body.reduce-motion *{animation:none!important}
 <div id="pick" hidden><div id="pbox"><h3>CHOOSE PROJECT FOLDER</h3>
  <div id="prow"><input id="pp" placeholder="type a path and press Enter"><button id="pgo">go</button></div>
  <div id="pq"></div><div id="pl"></div>
- <div id="pfoot"><input id="pn" placeholder="new folder name"><button id="pnew">create</button><span id="pe"></span><button id="pcancel">cancel</button><button id="pok" disabled>Use folder</button></div></div></div>
+ <div id="pfoot"><input id="pn" placeholder="new folder name"><button id="pnew">create</button><span id="pe"></span><button id="pcancel">cancel</button><button id="pwin" hidden>Browse with Windows…</button><button id="pok"disabled>Use folder</button></div></div></div>
 <script>
 const C={bg:'#121214',card:'#17171b',l:'#3a3a44',gl:'#2c2c33',d:'#7d7d88',t:'#e8e8ee',p:'#8b7cf6',g:'#4ade80',r:'#f4514b',a:'#f0a64b',c:'#5eead4'};
 const NS='http://www.w3.org/2000/svg';let P,FID='';const W={},BIND=[];let S=null;
@@ -537,6 +537,11 @@ $('pgo').onclick=()=>loadFs($('pp').value.trim());
 $('pp').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();$('pgo').click()}});
 $('pnew').onclick=async()=>{const n=$('pn').value.trim();if(!n||!fsCur){pickErr('open a folder first and type a name');return}
  const r=await post('/fs/mkdir',{path:fsCur,name:n}),j=await r.json();if(!r.ok){pickErr(j.error||'failed');return}$('pn').value='';loadFs(j.path)};
+fetch('/about').then(r=>r.json()).then(a=>{$('pwin').hidden=!a.nativePicker}).catch(()=>{});
+$('pwin').onclick=async()=>{const b=$('pwin');b.disabled=true;b.textContent='Opening…';
+ try{const r=await post('/fs/pick',{}),j=await r.json();if(!r.ok)toast(j.error||'folder browser failed');else if(j.cancelled)toast('No folder chosen');else await loadFs(j.path)}
+ catch{toast('folder browser failed')}
+ b.disabled=false;b.textContent='Browse with Windows…'};
 $('pok').onclick=async()=>{if(!fsCur)return;const r=await post('/project/new',{folder:fsCur}),j=await r.json();if(!r.ok){pickErr(j.error||'failed');return}pendingSelect=j.id;$('pick').hidden=true};
 let SUBS={},subSel=null;
 function subList(){const t=thr();return t?(SUBS[t.id]||[]).slice().sort((a,b)=>b.started-a.started):[]}

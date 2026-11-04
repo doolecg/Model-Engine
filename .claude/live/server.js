@@ -463,6 +463,13 @@ function body(req, cb, limit) {
   req.on('end', () => { if (over) return cb(null); try { cb(JSON.parse(b || '{}')); } catch { cb(null); } });
 }
 
+const NATIVE_PICKER = process.platform === 'win32' && !fs.existsSync('/.dockerenv') && process.env.MODEL_ENGINE_HOST !== '0.0.0.0';
+const PICK_SCRIPT = "Add-Type -AssemblyName System.Windows.Forms; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
+  + "$o = New-Object System.Windows.Forms.Form; $o.TopMost = $true; $o.ShowInTaskbar = $false; $o.Opacity = 0; $o.StartPosition = 'CenterScreen'; $o.Show(); $o.Activate(); "
+  + "$d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'Choose a project folder'; $d.ShowNewFolderButton = $true; "
+  + "if ($d.ShowDialog($o) -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::Out.Write($d.SelectedPath) }; $o.Close()";
+let picking = null;
+
 http.createServer((req, res) => {
   const hosts = [`127.0.0.1:${PORT}`, `localhost:${PORT}`], origin = req.headers.origin;
   if (!hosts.includes(req.headers.host) || (origin !== undefined && !hosts.some((h) => origin === `http://${h}`))) { res.writeHead(403); return res.end(); }
@@ -474,7 +481,7 @@ http.createServer((req, res) => {
   if (req.method === 'GET' && u === '/about') {
     let version = '0.0.0';
     try { version = JSON.parse(fs.readFileSync(path.join(__dirname, 'package.json'), 'utf8')).version; } catch {}
-    return json(res, { version, port: PORT, root: path.basename(ROOT), node: process.version });
+    return json(res, { version, port: PORT, root: path.basename(ROOT), node: process.version, nativePicker: NATIVE_PICKER });
   }
   if (req.method === 'GET' && u === '/ondemand') return json(res, Object.entries(ONDEMAND).map(([name, o]) => ({ name, label: o.label })));
   if (req.method === 'GET' && u === '/usage') return json(res, aggregateUsage(usageRows));
@@ -536,6 +543,27 @@ http.createServer((req, res) => {
   }
   if (req.method !== 'POST') { res.writeHead(404); return res.end(); }
   if (u === '/event') return body(req, (e) => { if (e) apply(e); done(res); });
+  if (u === '/fs/pick') {
+    if (!NATIVE_PICKER) return json(res, { error: 'The Windows folder browser is not available here. Use the built-in browser.' }, 501);
+    if (picking) return json(res, { error: 'A folder browser is already open' }, 409);
+    let out = '', over = false, finished = false;
+    const child = spawn('powershell.exe', ['-NoProfile', '-STA', '-WindowStyle', 'Hidden', '-Command', PICK_SCRIPT], { windowsHide: false, stdio: ['ignore', 'pipe', 'ignore'] });
+    picking = child.pid;
+    const stop = () => { try { process.kill(child.pid); } catch {} };
+    const timer = setTimeout(stop, 5 * 60 * 1000);
+    res.on('close', () => { if (!finished) stop(); });
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (d) => { if (out.length < 4096) out += d; else over = true; });
+    child.on('error', (er) => { clearTimeout(timer); picking = null; finished = true; json(res, { error: 'Could not start PowerShell: ' + er.message }, 501); });
+    child.on('close', () => {
+      clearTimeout(timer); picking = null; finished = true;
+      const p = out.trim();
+      if (!p) return json(res, { cancelled: true });
+      try { if (over || !fs.existsSync(p) || !fs.statSync(p).isDirectory()) return json(res, { error: 'That is not a folder' }, 400); } catch { return json(res, { error: 'That is not a folder' }, 400); }
+      json(res, { path: p });
+    });
+    return;
+  }
   if (u === '/fs/mkdir') return body(req, (b) => {
     const n = b && String(b.name || '').trim(), dir = b && b.path && path.resolve(String(b.path));
     if (!n || /[\\/:*?"<>|]/.test(n) || !dir || !fs.existsSync(dir)) return json(res, { error: 'bad name or folder' }, 400);
